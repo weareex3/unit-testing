@@ -133,6 +133,10 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
                     elif atype == "type":
                         page.keyboard.type(action["text"], delay=60)
                         page.wait_for_timeout(300)
+                    elif atype == "scroll":
+                        px = action.get("px", 400)
+                        page.evaluate(f"window.scrollBy(0, {px})")
+                        page.wait_for_timeout(300)
                     elif atype == "key":
                         k = action["key"]
                         scroll_map = {
@@ -838,6 +842,16 @@ async def live_key(scenario_id: str, request: Request):
     return JSONResponse({"ok": True})
 
 
+@app.post("/api/live/{scenario_id}/scroll")
+async def live_scroll(scenario_id: str, request: Request):
+    """Queue a scroll action for the runner's live loop."""
+    if scenario_id not in _LIVE_QUEUES:
+        raise HTTPException(404, "No live session for this scenario")
+    body = await request.json()
+    _LIVE_QUEUES[scenario_id].append({"type": "scroll", "px": int(body.get("px", 400))})
+    return JSONResponse({"ok": True})
+
+
 @app.post("/api/live/{scenario_id}/done")
 async def live_done(scenario_id: str, request: Request):
     """User finished live control — save recorded commands and resume runner."""
@@ -1072,6 +1086,15 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
     }}, 1500);
   }}
 
+  // Scroll buttons
+  async function scrollPage(px) {{
+    await fetch(`/api/live/{scenario_id}/scroll`, {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{px}}),
+    }});
+    setTimeout(_refreshShot, 600);
+  }}
+
   // Type into live browser
   async function sendType() {{
     const inp = document.getElementById('type-input');
@@ -1166,7 +1189,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
   {save_btn}
   {'<button onclick="window.location.href=\'/scenario/' + scenario_id + '\'" style="background:#374151;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;">← Back</button>' if live else ''}
 </div>
-{'<div id="type-row"><span style="color:#9ca3af;font-size:11px;white-space:nowrap;">Type into field:</span><input id="type-input" type="text" placeholder="click a field first, then type here and press Enter" autocomplete="off" /><button onclick="sendType()" style="background:#2563eb;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;white-space:nowrap;">Type →</button></div>' if live else ''}
+{'<div id="type-row"><span style="color:#9ca3af;font-size:11px;white-space:nowrap;">Type:</span><input id="type-input" type="text" placeholder="click a field first, then type here and press Enter" autocomplete="off" /><button onclick="sendType()" style="background:#2563eb;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;white-space:nowrap;">Type →</button><button onclick="scrollPage(-400)" style="background:#374151;color:#fff;border:none;padding:4px 14px;border-radius:4px;cursor:pointer;font-size:14px;" title="Scroll up">↑</button><button onclick="scrollPage(400)" style="background:#374151;color:#fff;border:none;padding:4px 14px;border-radius:4px;cursor:pointer;font-size:14px;" title="Scroll down">↓</button><button onclick="scrollPage(800)" style="background:#374151;color:#fff;border:none;padding:4px 10px;border-radius:4px;cursor:pointer;font-size:11px;white-space:nowrap;" title="Scroll down a lot">↓↓</button></div>' if live else ''}
 <div id="img-wrap">
   <img id="shot" src="{img_url}" draggable="false" />
 </div>
