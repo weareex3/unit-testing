@@ -134,7 +134,15 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
                         page.keyboard.type(action["text"], delay=60)
                         page.wait_for_timeout(300)
                     elif atype == "key":
-                        page.keyboard.press(action["key"])
+                        k = action["key"]
+                        scroll_map = {
+                            "PageDown": 600, "PageUp": -600,
+                            "ArrowDown": 120, "ArrowUp": -120,
+                        }
+                        if k in scroll_map:
+                            page.evaluate(f"window.scrollBy(0, {scroll_map[k]})")
+                        else:
+                            page.keyboard.press(k)
                         page.wait_for_timeout(300)
                 except Exception as _e:
                     print(f"  [live-action] {_e}")
