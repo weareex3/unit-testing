@@ -178,17 +178,25 @@ def run_scenario(
 
                 # Live mode: pause BEFORE the step so user drives it manually
                 if live_mode and pause_callback:
-                    # Wait for SF to fully paint — networkidle isn't enough,
-                    # the JS framework keeps rendering after network goes quiet
-                    try:
-                        page.wait_for_load_state("networkidle", timeout=10000)
-                    except Exception:
-                        pass
-                    page.wait_for_timeout(4000)
+                    # Wait for SF to fully paint then take a screenshot.
+                    # Retry until the file is large enough to contain real content —
+                    # a black/empty page compresses to <5KB, a real SF page is 100KB+.
                     pre_shot = str(runs_dir / f"{step.step_id}_pre.png")
-                    try:
-                        page.screenshot(path=pre_shot)
-                    except Exception:
+                    for _attempt in range(8):
+                        try:
+                            page.wait_for_load_state("networkidle", timeout=5000)
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(2000)
+                        try:
+                            page.screenshot(path=pre_shot, full_page=False)
+                            if os.path.getsize(pre_shot) > 30000:
+                                print(f"  [live-shot] got real screenshot on attempt {_attempt+1} ({os.path.getsize(pre_shot)//1024}KB)")
+                                break
+                            print(f"  [live-shot] attempt {_attempt+1}: page still black ({os.path.getsize(pre_shot)} bytes), waiting...")
+                        except Exception as _e:
+                            print(f"  [live-shot] screenshot error: {_e}")
+                    else:
                         pre_shot = ""
                     fix = pause_callback(
                         scenario_id=scenario.scenario_id,
