@@ -3,197 +3,151 @@
 
 {% block content %}
 <style>
-  .hdr-btn { display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;transition:all 0.15s;border:none; }
-  .hdr-btn:disabled { opacity:0.45;cursor:not-allowed; }
-  .status-btn { padding:5px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;transition:all 0.15s;border:1px solid transparent; }
-  .step-card { background:#fff;border:1px solid rgba(60,60,67,0.12);border-radius:12px;padding:18px 20px;transition:all 0.15s; }
-  .step-card.pass { border-color:rgba(52,199,89,0.25);background:rgba(52,199,89,0.03); }
-  .step-card.fail { border-color:rgba(255,59,48,0.25);background:rgba(255,59,48,0.03); }
-  .step-card.blocked { border-color:rgba(255,149,0,0.25);background:rgba(255,149,0,0.03); }
-  .badge-id { font-size:10px;font-weight:600;font-family:monospace;padding:2px 8px;border-radius:5px;border:1px solid rgba(60,60,67,0.12);background:#f2f2f7;color:#6e6e73; }
-  .panel { background:#fff;border:1px solid rgba(60,60,67,0.1);border-radius:12px;padding:18px; }
-  .section-label { font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#aeaeb2;margin:0 0 10px; }
+  .status-btn { padding:5px 16px; border-radius:7px; font-size:12px; font-weight:500; cursor:pointer; font-family:inherit; transition:all 0.15s; border:1px solid rgba(0,0,0,0.1); background:#f5f5f7; color:#6e6e73; }
+  .status-btn:hover { background:#ebebed; color:#1d1d1f; }
+  .status-btn.active-pass { background:#1d1d1f; color:#fff; border-color:#1d1d1f; }
+  .status-btn.active-fail { background:#1d1d1f; color:#fff; border-color:#1d1d1f; }
+  .status-btn.active-blocked { background:#1d1d1f; color:#fff; border-color:#1d1d1f; }
+  .step-card { background:#fff; border-radius:12px; padding:20px 22px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
+  .step-card + .step-card { margin-top:6px; }
 </style>
 
-<!-- Header -->
-<div style="background:#fff;border-bottom:1px solid rgba(60,60,67,0.1);padding:13px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;">
-  <nav style="display:flex;align-items:center;gap:6px;font-size:12px;color:#aeaeb2;">
-    <a href="/" style="color:#aeaeb2;text-decoration:none;" onmouseover="this.style.color='#6e6e73'" onmouseout="this.style.color='#aeaeb2'">Test Hub</a>
-    <span style="color:rgba(60,60,67,0.2);">/</span>
-    <a href="/" style="color:#aeaeb2;text-decoration:none;" onmouseover="this.style.color='#6e6e73'" onmouseout="this.style.color='#aeaeb2'">Test Scripts</a>
-    <span style="color:rgba(60,60,67,0.2);">/</span>
-    <span style="color:#1c1c1e;font-weight:500;font-family:monospace;font-size:11px;">{{ scenario.scenario_id }}</span>
+<div class="topbar">
+  <nav class="breadcrumb">
+    <a href="/" class="breadcrumb-link">Test Hub</a>
+    <span class="breadcrumb-sep">/</span>
+    <a href="/" class="breadcrumb-link">Test Scripts</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current" style="font-family:'SF Mono','Fira Code',monospace;font-size:11px;">{{ scenario.scenario_id }}</span>
   </nav>
-
   <div style="display:flex;align-items:center;gap:8px;">
-    <button id="cancel-btn" onclick="cancelRun()" class="hidden hdr-btn" style="color:#ff3b30;background:transparent;font-size:12px;text-decoration:underline;padding:4px 6px;">Reset</button>
-
-    <button id="control-btn" onclick="takeControlAnytime()" class="hdr-btn" style="background:#f2f2f7;color:#1c1c1e;border:1px solid rgba(60,60,67,0.15);">
-      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none"/></svg>
+    <button id="cancel-btn" onclick="cancelRun()" class="hidden btn btn-danger" style="font-size:12px;padding:5px 12px;">Reset</button>
+    <button id="control-btn" onclick="takeControlAnytime()" class="btn btn-ghost" style="font-size:12px;">
+      <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none"/></svg>
       <span id="control-label">Take Control</span>
     </button>
-
-    <div style="display:flex;border:1px solid rgba(60,60,67,0.15);border-radius:9px;overflow:hidden;">
-      <button id="run-btn" onclick="startRun(false)" class="hdr-btn" style="background:#0071e3;color:#fff;border-radius:0;border:none;gap:7px;padding:7px 16px;">
-        <svg id="run-icon" width="13" height="13" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+    <div style="display:flex;border-radius:9px;overflow:hidden;border:1px solid rgba(0,0,0,0.12);">
+      <button id="run-btn" onclick="startRun(false)" class="btn btn-primary" style="border-radius:0;border:none;padding:7px 18px;">
+        <svg id="run-icon" width="12" height="12" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         <span id="run-label">Run scenario</span>
       </button>
-      <button id="supervised-btn" onclick="startLive()" class="hdr-btn" style="background:#005bbf;color:rgba(255,255,255,0.85);border-radius:0;border:none;border-left:1px solid rgba(255,255,255,0.15);padding:7px 14px;font-size:12px;">
-        Step-by-step
-      </button>
+      <button id="supervised-btn" onclick="startLive()" class="btn" style="background:#005bbf;color:rgba(255,255,255,0.9);border-radius:0;border:none;border-left:1px solid rgba(255,255,255,0.15);font-size:12px;padding:7px 14px;">Step-by-step</button>
     </div>
   </div>
 </div>
 
-<div style="flex:1;overflow-y:auto;padding:24px 28px;">
-  <div style="max-width:900px;margin:0 auto;">
+<div class="content">
+  <div class="content-inner">
 
-    <!-- Title block -->
-    <div style="margin-bottom:24px;">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
-        <span class="badge-id">{{ scenario.scenario_id }}</span>
-        <span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:5px;
-          {% if role_color == 'violet' %}background:#f5f0ff;color:#6d28d9;border:1px solid #ddd6fe;
-          {% elif role_color == 'blue' %}background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;
-          {% elif role_color == 'emerald' %}background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;
-          {% else %}background:#f2f2f7;color:#6e6e73;border:1px solid rgba(60,60,67,0.12);{% endif %}">
-          {{ scenario.role }}
-        </span>
+    <div style="margin-bottom:28px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:7px;">
+        <span class="badge badge-id">{{ scenario.scenario_id }}</span>
+        <span class="badge badge-gray">{{ scenario.role }}</span>
       </div>
-      <h1 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#1c1c1e;margin:0 0 4px;">{{ scenario.name }}</h1>
-      <p style="font-size:13px;color:#6e6e73;margin:0;">{{ scenario.steps|length }} steps &middot; Module {{ scenario.module }}</p>
+      <h1 style="font-size:22px;font-weight:700;letter-spacing:-0.025em;color:#1d1d1f;margin:0 0 4px;">{{ scenario.name }}</h1>
+      <p style="font-size:13px;color:#6e6e73;margin:0;">{{ scenario.steps|length }} steps · Module {{ scenario.module }}</p>
     </div>
 
-    <div id="run-error" class="hidden" style="margin-bottom:16px;padding:12px 16px;background:#fff0ef;border:1px solid rgba(255,59,48,0.2);border-radius:10px;font-size:12px;font-family:monospace;color:#ff3b30;"></div>
+    <div id="run-error" class="hidden" style="margin-bottom:16px;padding:13px 16px;background:#fff0ef;border:1px solid rgba(255,59,48,0.18);border-radius:10px;font-size:12px;font-family:monospace;color:#d70015;"></div>
 
     <!-- Live run progress -->
-    <div id="live-panel" style="display:none;margin-bottom:20px;" class="panel">
+    <div id="live-panel" style="display:none;margin-bottom:20px;background:#fff;border-radius:12px;padding:18px 20px;box-shadow:0 1px 2px rgba(0,0,0,0.04);">
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
         <span id="live-spinner" style="width:8px;height:8px;border-radius:50%;background:#0071e3;display:inline-block;animation:lp-pulse 1s infinite;flex-shrink:0;"></span>
-        <span id="live-title" style="font-size:13px;font-weight:600;color:#1c1c1e;">Running…</span>
+        <span id="live-title" style="font-size:13px;font-weight:600;color:#1d1d1f;">Running…</span>
       </div>
-      <div id="live-steps" style="display:flex;flex-direction:column;gap:2px;"></div>
+      <div id="live-steps"></div>
     </div>
-    <style>@keyframes lp-pulse{0%,100%{opacity:1}50%{opacity:.25}}</style>
+    <style>@keyframes lp-pulse{0%,100%{opacity:1}50%{opacity:.2}}</style>
 
     {% if run %}
-    <!-- Video + Feedback -->
-    <div style="display:grid;grid-template-columns:1fr 340px;gap:16px;margin-bottom:24px;">
+    <div style="display:grid;grid-template-columns:1fr 320px;gap:14px;margin-bottom:28px;">
 
-      <!-- Video card -->
-      <div class="panel">
+      <div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 2px rgba(0,0,0,0.04);">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
-          <p class="section-label" style="margin:0;">Latest Run</p>
+          <span class="section-label">Latest Run</span>
           <div style="display:flex;align-items:center;gap:8px;">
-            {% if approved %}
-            <span style="font-size:11px;font-weight:600;color:#34c759;background:rgba(52,199,89,0.1);border:1px solid rgba(52,199,89,0.25);border-radius:5px;padding:2px 9px;">Locked</span>
-            {% endif %}
+            {% if approved %}<span class="badge badge-green">Locked</span>{% endif %}
             <span style="font-size:11px;color:#aeaeb2;font-family:monospace;">{{ run.id }}</span>
           </div>
         </div>
         {% if run.video_url %}
-        <video controls style="width:100%;border-radius:8px;background:#1c1c1e;" src="{{ run.video_url }}"></video>
+        <video controls style="width:100%;border-radius:8px;background:#1d1d1f;" src="{{ run.video_url }}"></video>
         {% else %}
-        <div style="padding:24px;text-align:center;background:#f2f2f7;border-radius:8px;">
-          <p style="font-size:13px;color:#aeaeb2;margin:0;">No video recorded for this run</p>
-        </div>
-        {% endif %}
-        {% if run.trace_url %}
-        <p style="font-size:11px;color:#aeaeb2;margin-top:10px;">
-          Frame-by-frame: <a href="{{ run.trace_url }}" download style="color:#0071e3;">download trace.zip</a>
-          → <a href="https://trace.playwright.dev" target="_blank" style="color:#0071e3;">trace.playwright.dev</a>
-        </p>
+        <div style="padding:28px;text-align:center;background:#f5f5f7;border-radius:8px;"><p style="font-size:13px;color:#aeaeb2;margin:0;">No video recorded</p></div>
         {% endif %}
         <div style="margin-top:14px;display:flex;gap:8px;">
           {% if approved %}
-          <div style="flex:1;text-align:center;font-size:12px;color:#34c759;font-weight:600;padding:9px;background:rgba(52,199,89,0.08);border-radius:8px;border:1px solid rgba(52,199,89,0.2);">
-            Locked — runner uses this approach every time
-          </div>
-          <button onclick="unapproveRun()" class="hdr-btn" style="background:#fff0ef;color:#ff3b30;border:1px solid rgba(255,59,48,0.2);font-size:12px;padding:7px 14px;">Mark Wrong</button>
+          <div style="flex:1;text-align:center;font-size:12px;color:#1a8a3c;font-weight:500;padding:9px;background:#e8faf0;border-radius:8px;border:1px solid rgba(52,199,89,0.2);">Locked — uses this approach every time</div>
+          <button onclick="unapproveRun()" class="btn btn-danger" style="font-size:12px;">Mark Wrong</button>
           {% else %}
-          <button onclick="approveRun()" class="hdr-btn" style="flex:1;justify-content:center;background:#34c759;color:#fff;font-size:12px;">Mark as Correct</button>
-          <button onclick="unapproveRun()" class="hdr-btn" style="background:#f2f2f7;color:#6e6e73;border:1px solid rgba(60,60,67,0.12);font-size:12px;">Incorrect</button>
+          <button onclick="approveRun()" class="btn btn-primary" style="flex:1;justify-content:center;">Mark as Correct</button>
+          <button onclick="unapproveRun()" class="btn btn-ghost" style="font-size:12px;">Incorrect</button>
           {% endif %}
         </div>
       </div>
 
-      <!-- Feedback card -->
-      <div class="panel" style="display:flex;flex-direction:column;">
-        <p class="section-label">Run Feedback</p>
-        <p style="font-size:12px;color:#aeaeb2;margin:0 0 12px;">Click a step to give feedback — used on next run.</p>
-
-        <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;">
+      <div style="background:#fff;border-radius:12px;padding:20px;box-shadow:0 1px 2px rgba(0,0,0,0.04);display:flex;flex-direction:column;">
+        <span class="section-label" style="margin-bottom:4px;">Run Feedback</span>
+        <p style="font-size:12px;color:#aeaeb2;margin:0 0 12px;">Select a step to add feedback.</p>
+        <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:1px;">
           {% for shot in run.screenshots %}
           {% set existing = step_feedback.get(shot.step_id, '') %}
           <button onclick="selectStep('{{ shot.step_id }}', {{ 'true' if shot.passed else 'false' }})"
                   id="step-btn-{{ shot.step_id }}"
-                  style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;border:1px solid transparent;background:transparent;cursor:pointer;text-align:left;font-family:inherit;transition:all 0.12s;"
-                  onmouseover="this.style.background='#f2f2f7'" onmouseout="this.style.background='transparent'">
-            {% if shot.passed %}
-            <span style="width:18px;height:18px;border-radius:50%;background:rgba(52,199,89,0.12);color:#34c759;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">✓</span>
-            {% else %}
-            <span style="width:18px;height:18px;border-radius:50%;background:rgba(255,59,48,0.1);color:#ff3b30;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">✗</span>
-            {% endif %}
+                  style="display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:7px;border:none;background:transparent;cursor:pointer;text-align:left;font-family:inherit;transition:background 0.12s;"
+                  onmouseover="this.style.background='#f5f5f7'" onmouseout="this.style.background='transparent'">
+            <span style="width:6px;height:6px;border-radius:50%;flex-shrink:0;background:{% if shot.passed %}#34c759{% else %}#ff3b30{% endif %};"></span>
             <span style="font-size:11px;font-family:monospace;color:#3c3c43;flex:1;">{{ shot.step_id }}</span>
-            {% if existing %}<span style="font-size:10px;color:#aeaeb2;font-weight:500;">note</span>{% endif %}
+            {% if existing %}<span style="font-size:10px;color:#aeaeb2;">note</span>{% endif %}
           </button>
           {% endfor %}
         </div>
-
-        <div id="feedback-box" class="hidden" style="margin-top:14px;border-top:1px solid rgba(60,60,67,0.08);padding-top:14px;">
-          <p style="font-size:12px;font-weight:600;color:#1c1c1e;margin:0 0 10px;">Feedback for <span id="feedback-step-label" style="font-family:monospace;color:#0071e3;"></span></p>
-
-          <div id="train-area" class="hidden" style="margin-bottom:12px;">
-            <p style="font-size:10px;color:#aeaeb2;margin:0 0 6px;">Click to record coordinates</p>
-            <div style="position:relative;border-radius:8px;overflow:hidden;border:1px solid rgba(60,60,67,0.1);cursor:crosshair;" id="train-img-wrap">
+        <div id="feedback-box" class="hidden" style="margin-top:12px;border-top:1px solid rgba(0,0,0,0.06);padding-top:12px;">
+          <p style="font-size:12px;font-weight:600;color:#1d1d1f;margin:0 0 8px;">Step <span id="feedback-step-label" style="font-family:monospace;color:#0071e3;"></span></p>
+          <div id="train-area" class="hidden" style="margin-bottom:10px;">
+            <p style="font-size:10px;color:#aeaeb2;margin:0 0 5px;">Click to record coordinates</p>
+            <div style="position:relative;border-radius:7px;overflow:hidden;border:1px solid rgba(0,0,0,0.08);cursor:crosshair;" id="train-img-wrap">
               <img id="train-img" style="width:100%;display:block;" />
               <div id="train-dots"></div>
             </div>
-            <button onclick="clearDots()" style="font-size:10px;color:#aeaeb2;background:none;border:none;cursor:pointer;margin-top:4px;font-family:inherit;">Clear clicks</button>
+            <button onclick="clearDots()" style="font-size:10px;color:#aeaeb2;background:none;border:none;cursor:pointer;margin-top:3px;font-family:inherit;">Clear clicks</button>
           </div>
-
-          <textarea id="feedback-text" rows="3"
-                    placeholder="NAVIGATE: Recruiting&#10;CLICK_XY: 500, 350&#10;TYPE: Alex Brackley&#10;PRESS: Enter&#10;WAIT: 1000"
-                    style="width:100%;font-size:11px;color:#1c1c1e;background:#f2f2f7;border:1px solid rgba(60,60,67,0.12);border-radius:8px;padding:9px 12px;resize:none;outline:none;font-family:monospace;transition:border-color 0.15s;"
-                    onfocus="this.style.borderColor='#0071e3';this.style.boxShadow='0 0 0 3px rgba(0,113,227,0.1)'" onblur="this.style.borderColor='rgba(60,60,67,0.12)';this.style.boxShadow='none'"></textarea>
-          <button onclick="saveAndRetry()" id="retry-btn" class="hdr-btn" style="margin-top:8px;width:100%;justify-content:center;background:#1c1c1e;color:#fff;font-size:12px;border-radius:8px;">Save &amp; Retry</button>
-          <button onclick="sendFeedback()" id="send-btn" class="hdr-btn" style="margin-top:5px;width:100%;justify-content:center;background:#f2f2f7;color:#6e6e73;font-size:12px;border-radius:8px;border:1px solid rgba(60,60,67,0.1);">Save Note Only</button>
-          <p id="send-status" class="hidden" style="margin-top:8px;font-size:12px;text-align:center;color:#34c759;font-weight:600;"></p>
-          <p id="retry-status" class="hidden" style="margin-top:6px;font-size:11px;text-align:center;color:#6e6e73;"></p>
+          <textarea id="feedback-text" rows="3" class="input" style="font-family:monospace;font-size:11px;resize:none;"
+                    placeholder="CLICK_XY: 500, 350&#10;TYPE: value&#10;WAIT: 1000"></textarea>
+          <button onclick="saveAndRetry()" id="retry-btn" class="btn btn-primary" style="margin-top:8px;width:100%;justify-content:center;font-size:12px;">Save &amp; Retry</button>
+          <button onclick="sendFeedback()" id="send-btn" class="btn btn-ghost" style="margin-top:5px;width:100%;justify-content:center;font-size:12px;">Save Note Only</button>
+          <p id="send-status" class="hidden" style="margin-top:6px;font-size:12px;text-align:center;color:#34c759;font-weight:600;"></p>
+          <p id="retry-status" class="hidden" style="margin-top:5px;font-size:11px;text-align:center;color:#6e6e73;"></p>
         </div>
       </div>
-
     </div>
     {% endif %}
 
     <!-- Step list -->
-    <div style="display:flex;flex-direction:column;gap:8px;">
+    <div>
       {% for step in scenario.steps %}
       {% set status = step_statuses[step.step_id] %}
-      <div data-step="{{ step.step_id }}" data-status="{{ status }}"
-           class="step-card {% if status == 'pass' %}pass{% elif status == 'fail' %}fail{% elif status == 'blocked' %}blocked{% endif %}">
+      <div data-step="{{ step.step_id }}" data-status="{{ status }}" class="step-card">
         <div style="display:flex;align-items:flex-start;gap:14px;">
-          <span style="margin-top:3px;width:8px;height:8px;border-radius:50%;flex-shrink:0;
+          <span style="margin-top:5px;width:7px;height:7px;border-radius:50%;flex-shrink:0;
             {% if status == 'pass' %}background:#34c759;
             {% elif status == 'fail' %}background:#ff3b30;
             {% elif status == 'blocked' %}background:#ff9500;
             {% else %}background:#d1d1d6;{% endif %}"></span>
-          <span class="badge-id" style="flex-shrink:0;margin-top:1px;">{{ step.step_id }}</span>
+          <span class="badge badge-id" style="flex-shrink:0;margin-top:1px;">{{ step.step_id }}</span>
           <div style="flex:1;min-width:0;">
-            <p style="font-size:14px;color:#1c1c1e;margin:0 0 6px;line-height:1.5;">{{ step.action }}</p>
+            <p style="font-size:14px;color:#1d1d1f;margin:0 0 7px;line-height:1.55;font-weight:400;">{{ step.action }}</p>
             {% if step.test_data and step.test_data != "—" %}
-            <p style="font-size:12px;color:#6e6e73;margin:0 0 5px;"><span style="font-weight:500;color:#3c3c43;">Data:</span> <code style="font-family:monospace;background:#f2f2f7;padding:1px 5px;border-radius:4px;font-size:11px;">{{ step.test_data }}</code></p>
+            <p style="font-size:12px;color:#6e6e73;margin:0 0 5px;"><span style="font-weight:500;color:#3c3c43;">Data:</span> <code style="font-family:monospace;background:#f5f5f7;padding:1px 6px;border-radius:4px;font-size:11px;">{{ step.test_data }}</code></p>
             {% endif %}
-            <p style="font-size:12px;color:#34c759;margin:0 0 14px;"><span style="font-weight:500;color:#248a3d;">Expected:</span> {{ step.expected_result }}</p>
+            <p style="font-size:12px;color:#6e6e73;margin:0 0 14px;"><span style="font-weight:500;color:#1a8a3c;">Expected:</span> {{ step.expected_result }}</p>
             <div style="display:flex;align-items:center;gap:6px;">
-              <button data-set="pass" class="status-btn"
-                style="{% if status == 'pass' %}background:#34c759;color:#fff;border-color:#34c759;{% else %}background:rgba(52,199,89,0.08);color:#248a3d;border-color:rgba(52,199,89,0.3);{% endif %}">Pass</button>
-              <button data-set="fail" class="status-btn"
-                style="{% if status == 'fail' %}background:#ff3b30;color:#fff;border-color:#ff3b30;{% else %}background:rgba(255,59,48,0.08);color:#d70015;border-color:rgba(255,59,48,0.3);{% endif %}">Fail</button>
-              <button data-set="blocked" class="status-btn"
-                style="{% if status == 'blocked' %}background:#ff9500;color:#fff;border-color:#ff9500;{% else %}background:rgba(255,149,0,0.08);color:#9d5700;border-color:rgba(255,149,0,0.3);{% endif %}">Blocked</button>
+              <button data-set="pass" class="status-btn {% if status == 'pass' %}active-pass{% endif %}">Pass</button>
+              <button data-set="fail" class="status-btn {% if status == 'fail' %}active-fail{% endif %}">Fail</button>
+              <button data-set="blocked" class="status-btn {% if status == 'blocked' %}active-blocked{% endif %}">Blocked</button>
               {% if status != 'not_tested' %}
-              <button data-set="not_tested" class="status-btn" style="margin-left:6px;background:#f2f2f7;color:#aeaeb2;border-color:rgba(60,60,67,0.12);">Reset</button>
+              <button data-set="not_tested" class="status-btn" style="margin-left:4px;color:#aeaeb2;">Reset</button>
               {% endif %}
             </div>
           </div>

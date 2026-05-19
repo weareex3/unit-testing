@@ -4,124 +4,288 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>{% block title %}EX3 TestOps{% endblock %}</title>
-  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <style>
-    *, *::before, *::after { box-sizing: border-box; }
-    :root {
-      --bg: #f2f2f7;
-      --surface: #ffffff;
-      --border: rgba(60,60,67,0.12);
-      --text-primary: #1c1c1e;
-      --text-secondary: #6e6e73;
-      --text-tertiary: #aeaeb2;
-      --blue: #0071e3;
-      --blue-light: #e8f1fb;
-      --green: #34c759;
-      --green-light: #e5f8ec;
-      --red: #ff3b30;
-      --red-light: #fff0ef;
-      --orange: #ff9500;
-      --orange-light: #fff5e6;
-      --sidebar-bg: #1c1c1e;
-      --sidebar-border: rgba(255,255,255,0.06);
-      --sidebar-text: #ebebf5;
-      --sidebar-muted: rgba(235,235,245,0.4);
-      --sidebar-active-bg: rgba(255,255,255,0.1);
-    }
-    html, body { height: 100%; margin: 0; }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
     body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Helvetica Neue', Arial, sans-serif;
-      background: var(--bg);
-      color: var(--text-primary);
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: #f5f5f7;
+      color: #1d1d1f;
       -webkit-font-smoothing: antialiased;
-      -moz-osx-font-smoothing: grayscale;
+      font-size: 14px;
+      line-height: 1.5;
     }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.15); border-radius: 3px; }
-    .scroll-thin::-webkit-scrollbar { width: 4px; }
-    .scroll-thin::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 2px; }
+    a { text-decoration: none; color: inherit; }
+    button { font-family: inherit; cursor: pointer; }
+    input, textarea { font-family: inherit; }
+
+    /* Layout */
+    .app { display: flex; min-height: 100vh; }
+
+    /* Sidebar */
+    .sidebar {
+      width: 230px;
+      flex-shrink: 0;
+      background: #1d1d1f;
+      display: flex;
+      flex-direction: column;
+      position: sticky;
+      top: 0;
+      height: 100vh;
+      overflow: hidden;
+    }
+    .sidebar-brand {
+      padding: 22px 20px 18px;
+      border-bottom: 1px solid rgba(255,255,255,0.07);
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .brand-icon {
+      width: 32px; height: 32px;
+      background: #0071e3;
+      border-radius: 8px;
+      display: flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+    }
+    .brand-name { font-size: 14px; font-weight: 600; color: #f5f5f7; letter-spacing: -0.01em; }
+    .brand-sub { font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 1px; }
+    .client-chip {
+      margin: 12px 20px 0;
+      display: inline-flex; align-items: center; gap: 6px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 6px;
+      padding: 4px 10px;
+      font-size: 11px;
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      color: rgba(255,255,255,0.45);
+    }
+    .client-chip::before {
+      content: '';
+      width: 6px; height: 6px;
+      border-radius: 50%;
+      background: #34c759;
+      flex-shrink: 0;
+    }
+    .sidebar-nav { flex: 1; overflow-y: auto; padding: 16px 12px; }
+    .sidebar-nav::-webkit-scrollbar { width: 0; }
+    .nav-section { margin-bottom: 22px; }
+    .nav-label {
+      font-size: 10px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: rgba(255,255,255,0.25);
+      padding: 0 8px 7px;
+    }
+    .nav-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 400;
+      color: rgba(255,255,255,0.55);
+      transition: all 0.15s;
+      margin-bottom: 1px;
+    }
+    .nav-item:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.85); }
+    .nav-item.active { background: rgba(0,113,227,0.25); color: #fff; font-weight: 500; }
+    .nav-item-left { display: flex; align-items: center; gap: 9px; }
+    .nav-icon { opacity: 0.6; flex-shrink: 0; }
+    .nav-count { font-size: 11px; color: rgba(255,255,255,0.3); font-variant-numeric: tabular-nums; }
+    .nav-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; }
+
+    /* Main */
+    .main { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+
+    /* Topbar */
+    .topbar {
+      background: rgba(255,255,255,0.85);
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      border-bottom: 1px solid rgba(0,0,0,0.07);
+      padding: 0 28px;
+      height: 52px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+    }
+    .breadcrumb { display: flex; align-items: center; gap: 6px; font-size: 12px; }
+    .breadcrumb a { color: #6e6e73; transition: color 0.1s; }
+    .breadcrumb a:hover { color: #1d1d1f; }
+    .breadcrumb-sep { color: #c7c7cc; font-size: 11px; }
+    .breadcrumb-current { color: #1d1d1f; font-weight: 500; }
+
+    /* Content */
+    .content { flex: 1; overflow-y: auto; padding: 32px 32px; }
+    .content-inner { max-width: 880px; margin: 0 auto; }
+
+    /* Cards */
+    .card {
+      background: #fff;
+      border-radius: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+      overflow: hidden;
+    }
+
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-size: 13px;
+      font-weight: 500;
+      border: none;
+      cursor: pointer;
+      transition: all 0.15s;
+      white-space: nowrap;
+    }
+    .btn:disabled { opacity: 0.45; cursor: not-allowed; }
+    .btn-primary { background: #0071e3; color: #fff; }
+    .btn-primary:hover:not(:disabled) { background: #0077ed; }
+    .btn-secondary { background: #f5f5f7; color: #1d1d1f; border: 1px solid rgba(0,0,0,0.1); }
+    .btn-secondary:hover:not(:disabled) { background: #ebebed; }
+    .btn-ghost { background: transparent; color: #6e6e73; border: 1px solid rgba(0,0,0,0.1); }
+    .btn-ghost:hover:not(:disabled) { background: #f5f5f7; color: #1d1d1f; }
+    .btn-danger { background: rgba(255,59,48,0.1); color: #d70015; border: 1px solid rgba(255,59,48,0.2); }
+    .btn-danger:hover:not(:disabled) { background: rgba(255,59,48,0.15); }
+
+    /* Badges */
+    .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 5px; font-size: 11px; font-weight: 500; }
+    .badge-id { background: #f5f5f7; color: #6e6e73; font-family: 'SF Mono','Fira Code',monospace; font-weight: 600; border: 1px solid rgba(0,0,0,0.08); }
+    .badge-green { background: #e8faf0; color: #1a8a3c; border: 1px solid rgba(52,199,89,0.2); }
+    .badge-red { background: #fff0ef; color: #d70015; border: 1px solid rgba(255,59,48,0.2); }
+    .badge-orange { background: #fff5e6; color: #9d5700; border: 1px solid rgba(255,149,0,0.2); }
+    .badge-blue { background: #e8f1fb; color: #0050a0; border: 1px solid rgba(0,113,227,0.2); }
+    .badge-purple { background: #f5f0ff; color: #6d28d9; border: 1px solid rgba(109,40,217,0.2); }
+    .badge-gray { background: #f5f5f7; color: #6e6e73; border: 1px solid rgba(0,0,0,0.08); }
+
+    /* Status dot */
+    .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+    .dot-green { background: #34c759; }
+    .dot-red { background: #ff3b30; }
+    .dot-orange { background: #ff9500; }
+    .dot-gray { background: #d1d1d6; }
+
+    /* Section label */
+    .section-label { font-size: 11px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: #aeaeb2; }
+
+    /* Form inputs */
+    .input {
+      width: 100%;
+      padding: 9px 13px;
+      border: 1px solid rgba(0,0,0,0.12);
+      border-radius: 9px;
+      font-size: 13px;
+      font-family: inherit;
+      background: #fff;
+      color: #1d1d1f;
+      outline: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .input:focus {
+      border-color: #0071e3;
+      box-shadow: 0 0 0 3px rgba(0,113,227,0.12);
+    }
+    textarea.input { resize: vertical; }
+    .input::placeholder { color: #aeaeb2; }
+
+    /* Hidden */
+    .hidden { display: none !important; }
   </style>
 </head>
 <body>
-  <div style="display:flex;min-height:100vh;">
+<div class="app">
 
-    <!-- Sidebar -->
-    <aside style="width:220px;background:var(--sidebar-bg);color:var(--sidebar-text);flex-shrink:0;display:flex;flex-direction:column;position:sticky;top:0;height:100vh;">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      </div>
+      <div>
+        <div class="brand-name">EX3 TestOps</div>
+        <div class="brand-sub">SuccessFactors UAT</div>
+      </div>
+    </div>
+    {% if client_id is defined %}
+    <div class="client-chip">{{ client_id }}</div>
+    {% endif %}
 
-      <!-- Brand -->
-      <div style="padding:20px 18px 16px;border-bottom:1px solid var(--sidebar-border);">
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
-          <div style="width:28px;height:28px;background:var(--blue);border-radius:7px;display:flex;align-items:center;justify-content:center;flex-shrink:0;">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          </div>
-          <div>
-            <div style="font-size:13px;font-weight:600;letter-spacing:-0.01em;line-height:1.2;">EX3 TestOps</div>
-            <div style="font-size:10px;color:var(--sidebar-muted);margin-top:1px;">SuccessFactors UAT</div>
-          </div>
-        </div>
-        {% if client_id is defined %}
-        <div style="margin-top:10px;display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:3px 8px;">
-          <span style="width:5px;height:5px;background:#34c759;border-radius:50%;"></span>
-          <span style="font-size:10px;font-family:monospace;color:rgba(235,235,245,0.6);">{{ client_id }}</span>
-        </div>
-        {% endif %}
+    <nav class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-label">Overview</div>
+        <a href="/" class="nav-item">
+          <span class="nav-item-left">
+            <svg class="nav-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            Dashboard
+          </span>
+        </a>
       </div>
 
-      <!-- Nav -->
-      <nav class="scroll-thin" style="flex:1;overflow-y:auto;padding:14px 10px;">
+      <div class="nav-section">
+        <div class="nav-label">Test Scripts</div>
+        <a href="/" class="nav-item active">
+          <span class="nav-item-left">
+            <svg class="nav-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+            All Test Cases
+          </span>
+          <span class="nav-count">{{ stats.total }}</span>
+        </a>
+        <a href="/?filter=pass" class="nav-item">
+          <span class="nav-item-left">
+            <span class="nav-dot dot-green"></span>
+            Passing
+          </span>
+          <span class="nav-count">{{ stats.passing }}</span>
+        </a>
+        <a href="/?filter=fail" class="nav-item">
+          <span class="nav-item-left">
+            <span class="nav-dot dot-red"></span>
+            Failing
+          </span>
+          <span class="nav-count">{{ stats.failing }}</span>
+        </a>
+        <a href="/?filter=blocked" class="nav-item">
+          <span class="nav-item-left">
+            <span class="nav-dot dot-orange"></span>
+            Blocked
+          </span>
+          <span class="nav-count">{{ stats.blocked }}</span>
+        </a>
+      </div>
 
-        <div style="margin-bottom:18px;">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--sidebar-muted);padding:0 8px 6px;">Overview</div>
-          <a href="/" style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:7px;font-size:13px;color:var(--sidebar-text);text-decoration:none;transition:background 0.15s;" onmouseover="this.style.background='var(--sidebar-active-bg)'" onmouseout="this.style.background='transparent'">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0;opacity:0.7;"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
-            Dashboard
-          </a>
-        </div>
-
-        <div style="margin-bottom:18px;">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--sidebar-muted);padding:0 8px 6px;">Test Scripts</div>
-          <a href="/" style="display:flex;align-items:center;justify-content:space-between;padding:7px 8px;border-radius:7px;font-size:13px;color:#fff;text-decoration:none;background:rgba(0,113,227,0.3);border:1px solid rgba(0,113,227,0.4);">
-            <span style="display:flex;align-items:center;gap:9px;">
-              <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0;opacity:0.8;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-              All Test Cases
-            </span>
-            <span style="font-size:11px;color:rgba(255,255,255,0.5);font-variant-numeric:tabular-nums;">{{ stats.total }}</span>
-          </a>
-          <a href="/?filter=pass" style="display:flex;align-items:center;justify-content:space-between;padding:7px 8px;border-radius:7px;font-size:13px;color:var(--sidebar-text);text-decoration:none;margin-top:2px;transition:background 0.15s;" onmouseover="this.style.background='var(--sidebar-active-bg)'" onmouseout="this.style.background='transparent'">
-            <span style="display:flex;align-items:center;gap:9px;"><span style="width:6px;height:6px;border-radius:50%;background:#34c759;flex-shrink:0;"></span>Passing</span>
-            <span style="font-size:11px;color:var(--sidebar-muted);font-variant-numeric:tabular-nums;">{{ stats.passing }}</span>
-          </a>
-          <a href="/?filter=fail" style="display:flex;align-items:center;justify-content:space-between;padding:7px 8px;border-radius:7px;font-size:13px;color:var(--sidebar-text);text-decoration:none;margin-top:2px;transition:background 0.15s;" onmouseover="this.style.background='var(--sidebar-active-bg)'" onmouseout="this.style.background='transparent'">
-            <span style="display:flex;align-items:center;gap:9px;"><span style="width:6px;height:6px;border-radius:50%;background:#ff3b30;flex-shrink:0;"></span>Failing</span>
-            <span style="font-size:11px;color:var(--sidebar-muted);font-variant-numeric:tabular-nums;">{{ stats.failing }}</span>
-          </a>
-          <a href="/?filter=blocked" style="display:flex;align-items:center;justify-content:space-between;padding:7px 8px;border-radius:7px;font-size:13px;color:var(--sidebar-text);text-decoration:none;margin-top:2px;transition:background 0.15s;" onmouseover="this.style.background='var(--sidebar-active-bg)'" onmouseout="this.style.background='transparent'">
-            <span style="display:flex;align-items:center;gap:9px;"><span style="width:6px;height:6px;border-radius:50%;background:#ff9500;flex-shrink:0;"></span>Blocked</span>
-            <span style="font-size:11px;color:var(--sidebar-muted);font-variant-numeric:tabular-nums;">{{ stats.blocked }}</span>
-          </a>
-        </div>
-
-        <div>
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:var(--sidebar-muted);padding:0 8px 6px;">Tools</div>
-          <a href="#" style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:7px;font-size:13px;color:var(--sidebar-text);text-decoration:none;transition:background 0.15s;" onmouseover="this.style.background='var(--sidebar-active-bg)'" onmouseout="this.style.background='transparent'">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0;opacity:0.7;"><path stroke-linecap="round" stroke-linejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/></svg>
+      <div class="nav-section">
+        <div class="nav-label">Tools</div>
+        <a href="#" class="nav-item">
+          <span class="nav-item-left">
+            <svg class="nav-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M11 3.055A9.001 9.001 0 1020.945 13H11V3.055z"/></svg>
             Test Generator
-          </a>
-          <a href="#" style="display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:7px;font-size:13px;color:var(--sidebar-text);text-decoration:none;margin-top:2px;transition:background 0.15s;" onmouseover="this.style.background='var(--sidebar-active-bg)'" onmouseout="this.style.background='transparent'">
-            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8" style="flex-shrink:0;opacity:0.7;"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+          </span>
+        </a>
+        <a href="#" class="nav-item">
+          <span class="nav-item-left">
+            <svg class="nav-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
             Bug Analyzer
-          </a>
-        </div>
+          </span>
+        </a>
+      </div>
+    </nav>
+  </aside>
 
-      </nav>
-    </aside>
+  <!-- Main -->
+  <main class="main">
+    {% block content %}{% endblock %}
+  </main>
 
-    <!-- Main -->
-    <main style="flex:1;display:flex;flex-direction:column;min-width:0;min-height:100vh;">
-      {% block content %}{% endblock %}
-    </main>
-
-  </div>
+</div>
 </body>
 </html>

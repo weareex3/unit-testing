@@ -3,92 +3,75 @@
 
 {% block content %}
 <style>
-  .pill { display:inline-flex;align-items:center;gap:6px;padding:5px 13px;border-radius:20px;font-size:12px;font-weight:500;border:1px solid var(--border);background:var(--surface);color:var(--text-secondary);cursor:pointer;transition:all 0.15s; }
-  .pill:hover { border-color:rgba(0,113,227,0.3);color:var(--blue); }
-  .pill.active { background:var(--blue);color:#fff;border-color:var(--blue); }
-  .pill.active span { background:rgba(255,255,255,0.3); }
-  .card { display:flex;align-items:center;gap:12px;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:10px;text-decoration:none;color:var(--text-primary);transition:all 0.15s;cursor:pointer; }
-  .card:hover { border-color:rgba(0,113,227,0.3);box-shadow:0 2px 12px rgba(0,0,0,0.06);transform:translateY(-1px); }
-  .badge { font-size:10px;font-weight:600;font-family:monospace;padding:2px 7px;border-radius:5px;border:1px solid var(--border);background:var(--bg);color:var(--text-secondary); }
-  .role-badge { font-size:10px;font-weight:500;padding:2px 8px;border-radius:5px; }
-  .search-input { width:100%;padding:9px 14px 9px 36px;border:1px solid var(--border);border-radius:8px;font-size:13px;background:var(--surface);color:var(--text-primary);outline:none;transition:border-color 0.15s;font-family:inherit; }
-  .search-input:focus { border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,113,227,0.1); }
+  .filter-bar { display:flex; gap:2px; background:#f0f0f0; border-radius:9px; padding:3px; width:fit-content; margin-bottom:20px; }
+  .filter-tab { padding:5px 14px; border-radius:7px; font-size:12px; font-weight:500; color:#6e6e73; background:transparent; border:none; cursor:pointer; transition:all 0.15s; }
+  .filter-tab.active { background:#fff; color:#1d1d1f; box-shadow:0 1px 3px rgba(0,0,0,0.1); }
+  .scenario-row { display:flex; align-items:center; gap:14px; padding:13px 18px; background:#fff; border-radius:10px; text-decoration:none; color:#1d1d1f; transition:box-shadow 0.15s; margin-bottom:4px; box-shadow:0 1px 2px rgba(0,0,0,0.04); }
+  .scenario-row:hover { box-shadow:0 2px 12px rgba(0,0,0,0.09); }
+  .scenario-name { font-size:14px; font-weight:500; flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .scenario-steps { font-size:12px; color:#aeaeb2; font-variant-numeric:tabular-nums; flex-shrink:0; }
+  .group-title { font-size:13px; font-weight:600; color:#1d1d1f; margin-bottom:8px; }
+  .group-meta { font-size:11px; color:#aeaeb2; font-weight:400; margin-left:8px; }
 </style>
 
-<!-- Header -->
-<div style="background:var(--surface);border-bottom:1px solid var(--border);padding:14px 28px;display:flex;align-items:center;justify-content:space-between;">
-  <nav style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--text-tertiary);">
-    <a href="/" style="color:var(--text-tertiary);text-decoration:none;" onmouseover="this.style.color='var(--text-secondary)'" onmouseout="this.style.color='var(--text-tertiary)'">Test Hub</a>
-    <span style="color:var(--border);">/</span>
-    <span style="color:var(--text-primary);font-weight:500;">Test Scripts</span>
+<div class="topbar">
+  <nav class="breadcrumb">
+    <a href="/" class="breadcrumb-link">Test Hub</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current">Test Scripts</span>
   </nav>
-  <button style="display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border:1px solid var(--border);border-radius:7px;background:var(--surface);font-size:12px;font-weight:500;color:var(--text-secondary);cursor:pointer;font-family:inherit;transition:all 0.15s;" onmouseover="this.style.borderColor='rgba(0,113,227,0.3)';this.style.color='var(--blue)'" onmouseout="this.style.borderColor='var(--border)';this.style.color='var(--text-secondary)'">
-    <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+  <button class="btn btn-ghost" style="font-size:12px;padding:5px 13px;">
+    <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
     Export
   </button>
 </div>
 
-<div style="flex:1;overflow-y:auto;padding:28px;">
-  <div style="max-width:860px;margin:0 auto;">
+<div class="content">
+  <div class="content-inner">
 
-    <!-- Title -->
-    <div style="margin-bottom:20px;">
-      <h1 style="font-size:22px;font-weight:700;letter-spacing:-0.02em;margin:0 0 4px;">Test Script Library</h1>
-      <p style="font-size:13px;color:var(--text-secondary);margin:0;">Select a scenario to review steps, run automation or update status.</p>
+    <div style="margin-bottom:24px;">
+      <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:4px;">Test Scripts</h1>
+      <p style="font-size:13px;color:#6e6e73;">Select a scenario to run automation or review steps.</p>
     </div>
 
-    <!-- Filter pills -->
-    <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin-bottom:12px;">
-      {% set pills = [("all","All",""),("pass","Passing","green"),("fail","Failing","red"),("blocked","Blocked","orange"),("not_tested","Not Tested","")] %}
-      {% for key, label, color in pills %}
-      <button data-filter="{{ key }}" class="pill filter-pill {% if key == 'all' %}active{% endif %}">
-        {% if color == 'green' %}<span style="width:6px;height:6px;border-radius:50%;background:#34c759;"></span>{% endif %}
-        {% if color == 'red' %}<span style="width:6px;height:6px;border-radius:50%;background:#ff3b30;"></span>{% endif %}
-        {% if color == 'orange' %}<span style="width:6px;height:6px;border-radius:50%;background:#ff9500;"></span>{% endif %}
-        {{ label }}
-      </button>
+    <!-- Filter tabs -->
+    <div class="filter-bar">
+      {% set pills = [("all","All"),("pass","Passing"),("fail","Failing"),("blocked","Blocked"),("not_tested","Not Tested")] %}
+      {% for key, label in pills %}
+      <button data-filter="{{ key }}" class="filter-tab {% if key == 'all' %}active{% endif %}">{{ label }}</button>
       {% endfor %}
     </div>
 
     <!-- Search -->
     <div style="position:relative;margin-bottom:28px;">
-      <svg style="position:absolute;left:12px;top:50%;transform:translateY(-50%);color:var(--text-tertiary);" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-      <input id="search" type="text" class="search-input" placeholder="Search by ID, name or role…" />
+      <svg style="position:absolute;left:13px;top:50%;transform:translateY(-50%);color:#aeaeb2;pointer-events:none;" width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+      <input id="search" type="text" class="input" placeholder="Search by ID, name or role…" style="padding-left:38px;background:#fff;"/>
     </div>
 
     <!-- Groups -->
-    <div style="display:flex;flex-direction:column;gap:28px;">
+    <div style="display:flex;flex-direction:column;gap:32px;">
       {% for group in groups %}
       <section data-group>
-        <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
-          <h2 style="font-size:13px;font-weight:600;color:var(--text-primary);margin:0;">{{ group.label }}</h2>
-          <span style="font-size:11px;color:var(--text-tertiary);background:var(--bg);border:1px solid var(--border);border-radius:5px;padding:1px 8px;">{{ group.scenario_count }} scenarios · {{ group.step_count }} steps</span>
+        <div style="margin-bottom:10px;">
+          <span class="group-title">{{ group.label }}</span>
+          <span class="group-meta">{{ group.scenario_count }} scenarios · {{ group.step_count }} steps</span>
         </div>
-        <div style="display:flex;flex-direction:column;gap:4px;">
+        <div>
           {% for s in group.scenarios %}
-          <a href="/scenario/{{ s.id }}" data-card data-status="{{ s.status }}" data-search="{{ s.id }} {{ s.name|lower }} {{ s.role|lower }}" class="card">
-            <svg width="12" height="12" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2.5" style="color:var(--text-tertiary);flex-shrink:0;"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5l7 7-7 7"/></svg>
+          <a href="/scenario/{{ s.id }}" data-card data-status="{{ s.status }}" data-search="{{ s.id }} {{ s.name|lower }} {{ s.role|lower }}" class="scenario-row">
 
-            <!-- Status dot -->
-            <span style="width:7px;height:7px;border-radius:50%;flex-shrink:0;
-              background:{% if s.status == 'pass' %}#34c759{% elif s.status == 'fail' %}#ff3b30{% elif s.status == 'blocked' %}#ff9500{% else %}#aeaeb2{% endif %};"></span>
+            <span class="dot {% if s.status == 'pass' %}dot-green{% elif s.status == 'fail' %}dot-red{% elif s.status == 'blocked' %}dot-orange{% else %}dot-gray{% endif %}"></span>
 
-            <span class="badge">{{ s.id }}</span>
-            <span style="font-size:13px;font-weight:500;color:var(--text-primary);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ s.name }}</span>
+            <span class="badge badge-id" style="flex-shrink:0;">{{ s.id }}</span>
 
-            <span class="role-badge" style="
-              {% if s.role_color == 'violet' %}background:#f5f0ff;color:#6d28d9;border:1px solid #ddd6fe;{% endif %}
-              {% if s.role_color == 'blue' %}background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;{% endif %}
-              {% if s.role_color == 'emerald' %}background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;{% endif %}
-              {% if s.role_color == 'amber' %}background:#fffbeb;color:#92400e;border:1px solid #fde68a;{% endif %}
-              {% if s.role_color == 'rose' %}background:#fff1f2;color:#be123c;border:1px solid #fecdd3;{% endif %}
-              {% if s.role_color == 'slate' or not s.role_color %}background:var(--bg);color:var(--text-secondary);border:1px solid var(--border);{% endif %}
-            ">{{ s.role }}</span>
+            <span class="scenario-name">{{ s.name }}</span>
 
-            <span style="font-size:11px;color:var(--text-tertiary);flex-shrink:0;font-variant-numeric:tabular-nums;">{{ s.passed_steps }}/{{ s.step_count }}</span>
+            <span style="font-size:12px;color:#aeaeb2;flex-shrink:0;">{{ s.role }}</span>
+
+            <span class="scenario-steps">{{ s.passed_steps }}/{{ s.step_count }}</span>
 
             {% if s.status == 'fail' or (s.id == 'RCM-RC-101') %}
-            <span style="font-size:10px;font-weight:600;color:#ff3b30;background:#fff0ef;border:1px solid rgba(255,59,48,0.2);border-radius:5px;padding:2px 8px;flex-shrink:0;white-space:nowrap;">Recording</span>
+            <span style="font-size:11px;font-weight:600;color:#ff3b30;background:#fff0ef;border:1px solid rgba(255,59,48,0.18);border-radius:5px;padding:2px 8px;flex-shrink:0;">Recording</span>
             {% endif %}
           </a>
           {% endfor %}
@@ -102,17 +85,15 @@
 
 <script>
   const cards = document.querySelectorAll('[data-card]');
-  const pills = document.querySelectorAll('.filter-pill');
+  const tabs = document.querySelectorAll('.filter-tab');
   const search = document.getElementById('search');
   let currentFilter = 'all';
 
   function applyFilter() {
     const q = (search.value || '').toLowerCase();
     cards.forEach(card => {
-      const status = card.dataset.status;
-      const text = card.dataset.search;
-      const matchesFilter = currentFilter === 'all' || status === currentFilter;
-      const matchesSearch = !q || text.includes(q);
+      const matchesFilter = currentFilter === 'all' || card.dataset.status === currentFilter;
+      const matchesSearch = !q || card.dataset.search.includes(q);
       card.style.display = matchesFilter && matchesSearch ? '' : 'none';
     });
     document.querySelectorAll('[data-group]').forEach(g => {
@@ -121,10 +102,10 @@
     });
   }
 
-  pills.forEach(p => p.addEventListener('click', () => {
-    pills.forEach(x => x.classList.remove('active'));
-    p.classList.add('active');
-    currentFilter = p.dataset.filter;
+  tabs.forEach(t => t.addEventListener('click', () => {
+    tabs.forEach(x => x.classList.remove('active'));
+    t.classList.add('active');
+    currentFilter = t.dataset.filter;
     applyFilter();
   }));
   search.addEventListener('input', applyFilter);
