@@ -31,18 +31,19 @@
     {% endif %}
 
     {% for task_name, entry in libraries.items() %}
+    {% set task_steps = entry.get('steps', {}) if entry is mapping else {} %}
     <div class="task-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
         <div style="flex:1;min-width:0;">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
             <span style="font-size:15px;font-weight:700;color:#1d1d1f;">{{ task_name }}</span>
-            <span class="badge badge-blue">{{ entry.steps | length }} steps</span>
+            <span class="badge badge-blue">{{ task_steps | length }} steps</span>
           </div>
-          <p style="font-size:13px;color:#6e6e73;margin:0 0 10px;line-height:1.5;">{{ entry.description }}</p>
-          {% for step_id, cmds in entry.steps.items() %}
+          <p style="font-size:13px;color:#6e6e73;margin:0 0 10px;line-height:1.5;">{{ entry.get('description', '') if entry is mapping else '' }}</p>
+          {% for step_id, cmds in task_steps.items() %}
           <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
             <span style="font-size:11px;font-family:monospace;color:#aeaeb2;flex-shrink:0;">{{ step_id }}</span>
-            <span style="font-size:11px;color:#6e6e73;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{{ cmds.split('\n')[0] }}</span>
+            <span style="font-size:11px;color:#6e6e73;overflow:hidden;text-overflow:ellipsis;">{{ (cmds or '').split('\n') | first }}</span>
           </div>
           {% endfor %}
         </div>

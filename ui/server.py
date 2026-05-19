@@ -1386,12 +1386,19 @@ def set_step_status(scenario_id: str = Form(...), step_id: str = Form(...), stat
 
 @app.get("/library", response_class=HTMLResponse)
 def library_page(request: Request):
-    libraries = _load_library()
+    try:
+        libraries = _load_library()
+    except Exception:
+        libraries = {}
+    try:
+        stats = _stats()
+    except Exception:
+        stats = {"total": 0, "passing": 0, "failing": 0, "blocked": 0}
     return templates.TemplateResponse("library.html", {
         "request": request,
         "libraries": libraries,
         "client_id": CLIENT_ID,
-        "stats": _stats(),
+        "stats": stats,
     })
 
 
