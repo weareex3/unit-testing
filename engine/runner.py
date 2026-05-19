@@ -436,8 +436,10 @@ def _load_feedback(scenario_id: str) -> dict:
 
 
 def _library_lookup(step_description: str) -> str:
-    """Check global step library for a command matching this step description."""
+    """Check global step library for a command matching this step description.
+    Uses fuzzy matching so minor wording differences still match (threshold 0.75)."""
     import json, re
+    from difflib import SequenceMatcher
     lib_file = Path(__file__).resolve().parent.parent / "storage" / "global" / "step_library.json"
     if not lib_file.exists():
         return ""
@@ -448,10 +450,20 @@ def _library_lookup(step_description: str) -> str:
     def _norm(s: str) -> str:
         return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", s.lower())).strip()
     needle = _norm(step_description)
+    best_score = 0.0
+    best_cmd = ""
     for _lib_name, steps in libraries.items():
         for desc, cmd in steps.items():
-            if _norm(desc) == needle:
-                return cmd
+            hay = _norm(desc)
+            if hay == needle:
+                return cmd  # exact — no need to check further
+            score = SequenceMatcher(None, needle, hay).ratio()
+            if score > best_score:
+                best_score = score
+                best_cmd = cmd
+    if best_score >= 0.75:
+        print(f"  [library] fuzzy match score={best_score:.2f} — using stored commands")
+        return best_cmd
     return ""
 
 
