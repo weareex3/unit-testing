@@ -200,6 +200,25 @@ def _save_approved(data: dict) -> None:
     APPROVED_FILE.write_text(json.dumps(data, indent=2))
 
 
+def _git_remote_with_token() -> str:
+    """Return the git remote URL with GITHUB_TOKEN injected for auth."""
+    token = os.getenv("GITHUB_TOKEN", "")
+    if not token:
+        return "origin"
+    try:
+        import subprocess
+        url = subprocess.check_output(
+            ["git", "-C", str(ROOT), "remote", "get-url", "origin"],
+            capture_output=True, text=True
+        ).stdout.strip()
+        # inject token: https://github.com/... → https://token@github.com/...
+        if url.startswith("https://") and "@" not in url:
+            url = url.replace("https://", f"https://{token}@")
+        return url
+    except Exception:
+        return "origin"
+
+
 def _git_push_approved():
     import subprocess
     try:
@@ -210,7 +229,7 @@ def _git_push_approved():
         for p in paths:
             subprocess.run(["git", "-C", str(ROOT), "add", p], check=True, capture_output=True)
         subprocess.run(["git", "-C", str(ROOT), "commit", "-m", "Update approved playbook [auto]"], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(ROOT), "push", "origin", "master"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(ROOT), "push", _git_remote_with_token(), "master"], check=True, capture_output=True)
         print("[approved] pushed to GitHub")
     except Exception as exc:
         print(f"[approved] git push skipped: {exc}")
@@ -908,7 +927,7 @@ def _git_push_feedback():
         feedback_path = str(FEEDBACK_FILE.relative_to(ROOT))
         subprocess.run(["git", "-C", str(ROOT), "add", feedback_path], check=True, capture_output=True)
         subprocess.run(["git", "-C", str(ROOT), "commit", "-m", "Update step feedback [auto]"], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(ROOT), "push", "origin", "master"], check=True, capture_output=True)
+        subprocess.run(["git", "-C", str(ROOT), "push", _git_remote_with_token(), "master"], check=True, capture_output=True)
         print("[feedback] pushed to GitHub — Railway redeploying")
     except Exception as exc:
         print(f"[feedback] git push skipped: {exc}")
