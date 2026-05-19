@@ -146,17 +146,28 @@ def run_scenario(
             _live_seed_shot = ""   # last real screenshot from an automated step
             _live_manual_started = False  # once user takes first manual step, all rest are manual too
 
+            # Task library: check once per scenario if the whole scenario matches a saved task
+            import json as _json
+            _lib_file = Path(__file__).resolve().parent.parent / "storage" / "global" / "step_library.json"
+            _library = {}
+            if _lib_file.exists():
+                try:
+                    _library = _json.loads(_lib_file.read_text())
+                except Exception:
+                    pass
+            _library_steps = _library_task_match(steps, _library) if _library else {}
+            # library steps are keyed by step_id; build a positional fallback by index too
+            _library_by_index = {str(i): cmd for i, cmd in enumerate(_library_steps.values())}
+
             for i, step in enumerate(steps, 1):
                 print(f"\n  [step {i}/{len(steps)}] {step.step_id}")
                 print(f"           {step.action[:120]}")
 
-                # Approved playbook beats everything; fall back to regular feedback then library
+                # Approved playbook beats everything; fall back to feedback then task library
                 step_feedback = approved_cmds.get(step.step_id) or feedback_data.get(step.step_id, "")
-                if not step_feedback:
-                    lib_cmd = _library_lookup(step.action)
-                    if lib_cmd:
-                        print(f"  [library] matched global step library — using stored commands")
-                        step_feedback = lib_cmd
+                if not step_feedback and _library_steps:
+                    # Match by step_id first, then by position within the task
+                    step_feedback = _library_steps.get(step.step_id, "") or _library_by_index.get(str(i - 1), "")
                 if not step_feedback:
                     matched = _match_pattern(step.action)
                     if matched:
@@ -435,53 +446,44 @@ def _load_feedback(scenario_id: str) -> dict:
     return {**global_data, **client_data}
 
 
-def _library_lookup(step_description: str) -> str:
-    """Ask Claude if this step matches any saved task in the global library.
-    Library tasks are matched by intent, not text — so 'Log in as another user'
-    matches the 'Proxy' task even if worded completely differently."""
-    import json, os
-    lib_file = Path(__file__).resolve().parent.parent / "storage" / "global" / "step_library.json"
-    if not lib_file.exists():
-        return ""
-    try:
-        library = json.loads(lib_file.read_text())
-    except Exception:
-        return ""
+def _library_task_match(scenario_steps: list, library: dict) -> dict:
+    """Ask Claude which saved task this scenario matches, then return step_index -> commands.
+    Matches whole tasks by scenario description, not individual step text."""
+    import os
     if not library:
-        return ""
-
+        return {}
     task_lines = "\n".join(
         f"- {name}: {entry.get('description', name)}"
         for name, entry in library.items()
-        if isinstance(entry, dict) and entry.get("commands")
+        if isinstance(entry, dict) and entry.get("steps")
     )
     if not task_lines:
-        return ""
-
+        return {}
+    scenario_summary = "\n".join(f"  {i+1}. {s.action}" for i, s in enumerate(scenario_steps[:8]))
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
-        return ""
+        return {}
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=30,
+            max_tokens=40,
             messages=[{"role": "user", "content": (
-                f"You are matching a SAP SuccessFactors test step to a library of saved tasks.\n\n"
-                f"Step: \"{step_description}\"\n\n"
+                f"You are matching a SAP SuccessFactors test scenario to a library of saved tasks.\n\n"
+                f"Scenario steps:\n{scenario_summary}\n\n"
                 f"Saved tasks:\n{task_lines}\n\n"
-                f"If this step is asking the user to perform one of the saved tasks, reply with ONLY "
-                f"the exact task name. If it does not match any task, reply with ONLY: NO_MATCH"
+                f"If this scenario is performing one of the saved tasks, reply with ONLY the exact task name. "
+                f"If it does not match any saved task, reply with ONLY: NO_MATCH"
             )}],
         )
         result = msg.content[0].text.strip()
         if result != "NO_MATCH" and result in library:
-            print(f"  [library] matched task '{result}' — using stored commands")
-            return library[result]["commands"]
+            print(f"  [library] scenario matched task '{result}' — applying saved step commands")
+            return library[result].get("steps", {})
     except Exception as exc:
         print(f"  [library] lookup error: {exc}")
-    return ""
+    return {}
 
 
 def _load_approved_commands(scenario_id: str) -> dict:

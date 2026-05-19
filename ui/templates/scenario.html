@@ -79,6 +79,7 @@
         <div style="margin-top:14px;display:flex;gap:8px;">
           {% if approved %}
           <div style="flex:1;text-align:center;font-size:12px;color:#1a8a3c;font-weight:500;padding:9px;background:#e8faf0;border-radius:8px;border:1px solid rgba(52,199,89,0.2);">Locked — uses this approach every time</div>
+          <button onclick="openLibModal()" class="btn btn-ghost" style="font-size:12px;border-color:rgba(0,113,227,0.3);color:#0050a0;background:#e8f1fb;">+ Task Library</button>
           <button onclick="unapproveRun()" class="btn btn-danger" style="font-size:12px;">Mark Wrong</button>
           {% else %}
           <button onclick="approveRun()" class="btn btn-primary" style="flex:1;justify-content:center;">Mark as Correct</button>
@@ -149,10 +150,6 @@
               {% if status != 'not_tested' %}
               <button data-set="not_tested" class="status-btn" style="margin-left:4px;color:#aeaeb2;">Reset</button>
               {% endif %}
-              {% if step_feedback.get(step.step_id) %}
-              <button onclick="openLibModal('{{ step.action | replace("'", "\\'") }}', {{ step_feedback.get(step.step_id) | tojson }})"
-                style="margin-left:auto;font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid rgba(0,113,227,0.25);background:#e8f1fb;color:#0050a0;cursor:pointer;font-family:inherit;font-weight:500;">+ Library</button>
-              {% endif %}
             </div>
           </div>
         </div>
@@ -167,15 +164,14 @@
 <div id="lib-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;">
   <div style="background:#fff;border-radius:16px;padding:28px;width:460px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
     <h3 style="font-size:15px;font-weight:700;color:#1d1d1f;margin:0 0 4px;">Save to Task Library</h3>
-    <p style="font-size:12px;color:#aeaeb2;margin:0 0 18px;">Claude will match the intent of future steps to this task automatically.</p>
+    <p style="font-size:12px;color:#aeaeb2;margin:0 0 18px;">Saves the entire locked task. Claude will recognise it in any future module automatically.</p>
 
     <label style="font-size:12px;font-weight:500;color:#3c3c43;display:block;margin-bottom:5px;">Task name</label>
-    <input id="lib-name-input" type="text" class="input" placeholder="e.g. Proxy Login, Navigate to Module" style="margin-bottom:14px;" list="lib-names-list" />
-    <datalist id="lib-names-list"></datalist>
+    <input id="lib-name-input" type="text" class="input" placeholder="e.g. Proxy, Navigate to Module, Role Based Permissions" style="margin-bottom:14px;" />
 
-    <label style="font-size:12px;font-weight:500;color:#3c3c43;display:block;margin-bottom:5px;">What does this task do? <span style="font-weight:400;color:#aeaeb2;">(helps Claude match it)</span></label>
+    <label style="font-size:12px;font-weight:500;color:#3c3c43;display:block;margin-bottom:5px;">What is this task? <span style="font-weight:400;color:#aeaeb2;">(helps Claude recognise it)</span></label>
     <textarea id="lib-desc-input" rows="3" class="input" style="margin-bottom:18px;font-size:12px;resize:none;"
-      placeholder="e.g. Switching into another user's account using the SuccessFactors proxy feature"></textarea>
+      placeholder="e.g. The proxy workflow — switching into another user's SuccessFactors session to perform actions on their behalf"></textarea>
 
     <div style="display:flex;gap:8px;">
       <button onclick="closeLibModal()" class="btn btn-ghost" style="flex:1;justify-content:center;">Cancel</button>
@@ -1181,21 +1177,11 @@
     });
   });
 
-  // ── Step Library ─────────────────────────────────────────────────────────────
-  let _libStepCmds = '';
-
-  async function openLibModal(desc, cmds) {
-    _libStepCmds = cmds;
+  // ── Task Library ──────────────────────────────────────────────────────────────
+  function openLibModal() {
     document.getElementById('lib-save-status').style.display = 'none';
     document.getElementById('lib-name-input').value = '';
     document.getElementById('lib-desc-input').value = '';
-    // Pre-populate datalist with existing task names
-    const res = await fetch('/api/library');
-    if (res.ok) {
-      const libs = await res.json();
-      const dl = document.getElementById('lib-names-list');
-      dl.innerHTML = Object.keys(libs).map(n => `<option value="${n}">`).join('');
-    }
     document.getElementById('lib-modal').style.display = 'flex';
     document.getElementById('lib-name-input').focus();
   }
@@ -1208,11 +1194,11 @@
     const name = document.getElementById('lib-name-input').value.trim();
     const desc = document.getElementById('lib-desc-input').value.trim();
     if (!name) { alert('Enter a task name'); return; }
-    if (!desc) { alert('Describe what this task does so Claude can match it'); return; }
+    if (!desc) { alert('Describe what this task does so Claude can recognise it'); return; }
     const fd = new FormData();
     fd.append('task_name', name);
     fd.append('task_description', desc);
-    fd.append('commands', _libStepCmds);
+    fd.append('scenario_id', SCENARIO_ID);
     const res = await fetch('/api/library/add', { method: 'POST', body: fd });
     const status = document.getElementById('lib-save-status');
     if (res.ok) {

@@ -1404,10 +1404,21 @@ def get_library():
 def add_to_library(
     task_name: str = Form(...),
     task_description: str = Form(...),
-    commands: str = Form(...),
+    scenario_id: str = Form(...),
 ):
+    # Pull the full locked step sequence for this scenario
+    approved = _load_approved().get(scenario_id, {})
+    steps = approved.get("step_commands", {})
+    if not steps:
+        # Fall back to regular feedback if not formally approved
+        steps = _load_feedback().get(scenario_id, {})
+    if not steps:
+        raise HTTPException(400, "No locked steps found for this scenario — approve it first")
     data = _load_library()
-    data[task_name] = {"description": task_description, "commands": commands}
+    data[task_name] = {
+        "description": task_description,
+        "steps": steps,  # {step_id: commands, ...} — full task sequence
+    }
     _save_library(data)
     threading.Thread(target=_git_push_library, daemon=True).start()
     return JSONResponse({"ok": True})
