@@ -1408,12 +1408,16 @@ def library_page(request: Request):
         stats = _stats()
     except Exception:
         stats = {"total": 0, "passing": 0, "failing": 0, "blocked": 0}
-    return templates.TemplateResponse("library.html", {
-        "request": request,
-        "tasks": tasks,
-        "client_id": CLIENT_ID,
-        "stats": stats,
-    })
+    try:
+        return templates.TemplateResponse("library.html", {
+            "request": request,
+            "tasks": tasks,
+            "client_id": CLIENT_ID,
+            "stats": stats,
+        })
+    except Exception as exc:
+        import traceback
+        return HTMLResponse(f"<pre style='color:red;padding:20px'>{traceback.format_exc()}</pre>", status_code=500)
 
 
 @app.get("/api/library")
