@@ -1387,14 +1387,132 @@ def set_step_status(scenario_id: str = Form(...), step_id: str = Form(...), stat
 @app.get("/library", response_class=HTMLResponse)
 def library_page(request: Request):
     try:
-        stats = _stats()
+        st = _stats()
     except Exception:
-        stats = {"total": 0, "passing": 0, "failing": 0, "blocked": 0}
-    return templates.TemplateResponse("library.html", {
-        "request": request,
-        "client_id": CLIENT_ID,
-        "stats": stats,
-    })
+        st = {"total": 0, "passing": 0, "failing": 0, "blocked": 0}
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+  <title>Task Library — EX3 TestOps</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    *,*::before,*::after{{box-sizing:border-box;margin:0;padding:0}}
+    html,body{{height:100%}}
+    body{{font-family:'Inter',-apple-system,sans-serif;background:#f5f5f7;color:#1d1d1f;font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}}
+    a{{text-decoration:none;color:inherit}}
+    .app{{display:flex;min-height:100vh}}
+    .sidebar{{width:230px;flex-shrink:0;background:#1d1d1f;display:flex;flex-direction:column;position:sticky;top:0;height:100vh}}
+    .sidebar-brand{{padding:22px 20px 18px;border-bottom:1px solid rgba(255,255,255,0.07);display:flex;align-items:center;gap:12px}}
+    .brand-icon{{width:32px;height:32px;background:#0071e3;border-radius:8px;display:flex;align-items:center;justify-content:center;flex-shrink:0}}
+    .brand-name{{font-size:14px;font-weight:600;color:#f5f5f7}}
+    .brand-sub{{font-size:11px;color:rgba(255,255,255,0.35);margin-top:1px}}
+    .client-chip{{margin:12px 20px 0;display:inline-flex;align-items:center;gap:6px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:6px;padding:4px 10px;font-size:11px;font-family:monospace;color:rgba(255,255,255,0.45)}}
+    .client-chip::before{{content:'';width:6px;height:6px;border-radius:50%;background:#34c759;flex-shrink:0}}
+    .sidebar-nav{{flex:1;overflow-y:auto;padding:16px 12px}}
+    .nav-label{{font-size:10px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,0.25);padding:0 8px 7px}}
+    .nav-section{{margin-bottom:22px}}
+    .nav-item{{display:flex;align-items:center;justify-content:space-between;padding:8px 10px;border-radius:8px;font-size:13px;color:rgba(255,255,255,0.55);transition:all .15s;margin-bottom:1px}}
+    .nav-item:hover{{background:rgba(255,255,255,0.07);color:rgba(255,255,255,0.85)}}
+    .nav-item.active{{background:rgba(0,113,227,0.25);color:#fff;font-weight:500}}
+    .nav-item-left{{display:flex;align-items:center;gap:9px}}
+    .nav-icon{{opacity:.6;flex-shrink:0}}
+    .nav-count{{font-size:11px;color:rgba(255,255,255,0.3)}}
+    .nav-dot{{width:7px;height:7px;border-radius:50%;flex-shrink:0}}
+    .dot-green{{background:#34c759}}.dot-red{{background:#ff3b30}}.dot-orange{{background:#ff9500}}
+    .main{{flex:1;display:flex;flex-direction:column;min-width:0}}
+    .topbar{{background:rgba(255,255,255,0.85);backdrop-filter:blur(20px);border-bottom:1px solid rgba(0,0,0,0.07);padding:0 28px;height:52px;display:flex;align-items:center;position:sticky;top:0;z-index:100}}
+    .breadcrumb{{display:flex;align-items:center;gap:6px;font-size:12px}}
+    .breadcrumb a{{color:#6e6e73}}.breadcrumb a:hover{{color:#1d1d1f}}
+    .breadcrumb-sep{{color:#c7c7cc;font-size:11px}}
+    .breadcrumb-current{{color:#1d1d1f;font-weight:500}}
+    .content{{flex:1;overflow-y:auto;padding:32px}}
+    .content-inner{{max-width:880px;margin:0 auto}}
+    .badge{{display:inline-flex;align-items:center;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:500}}
+    .badge-blue{{background:#e8f1fb;color:#0050a0;border:1px solid rgba(0,113,227,0.2)}}
+    .btn{{display:inline-flex;align-items:center;gap:6px;padding:7px 16px;border-radius:8px;font-size:13px;font-weight:500;border:none;cursor:pointer;font-family:inherit}}
+    .btn-danger{{background:rgba(255,59,48,0.1);color:#d70015;border:1px solid rgba(255,59,48,0.2)}}
+    .btn-danger:hover{{background:rgba(255,59,48,0.15)}}
+    .task-card{{background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06);padding:22px 24px;margin-bottom:12px}}
+  </style>
+</head>
+<body>
+<div class="app">
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="brand-icon"><svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="#fff" stroke-width="2.5"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
+      <div><div class="brand-name">EX3 TestOps</div><div class="brand-sub">SuccessFactors UAT</div></div>
+    </div>
+    <div class="client-chip">{CLIENT_ID}</div>
+    <nav class="sidebar-nav">
+      <div class="nav-section">
+        <div class="nav-label">Overview</div>
+        <a href="/" class="nav-item"><span class="nav-item-left"><svg class="nav-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Dashboard</span></a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Test Scripts</div>
+        <a href="/" class="nav-item"><span class="nav-item-left"><svg class="nav-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>All Test Cases</span><span class="nav-count">{st['total']}</span></a>
+        <a href="/?filter=pass" class="nav-item"><span class="nav-item-left"><span class="nav-dot dot-green"></span>Passing</span><span class="nav-count">{st['passing']}</span></a>
+        <a href="/?filter=fail" class="nav-item"><span class="nav-item-left"><span class="nav-dot dot-red"></span>Failing</span><span class="nav-count">{st['failing']}</span></a>
+        <a href="/?filter=blocked" class="nav-item"><span class="nav-item-left"><span class="nav-dot dot-orange"></span>Blocked</span><span class="nav-count">{st['blocked']}</span></a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-label">Global</div>
+        <a href="/library" class="nav-item active"><span class="nav-item-left"><svg class="nav-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M4 6h16M4 10h16M4 14h10M4 18h10"/></svg>Task Library</span></a>
+      </div>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="topbar">
+      <nav class="breadcrumb">
+        <a href="/">Test Hub</a><span class="breadcrumb-sep">/</span>
+        <span class="breadcrumb-current">Task Library</span>
+      </nav>
+    </div>
+    <div class="content">
+      <div class="content-inner">
+        <div style="margin-bottom:24px;">
+          <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:4px;">Task Library</h1>
+          <p style="font-size:13px;color:#6e6e73;">Saved tasks fire automatically on any module, any client. Claude matches by intent — not exact wording.</p>
+        </div>
+        <div id="lib-body"><p style="color:#aeaeb2;font-size:13px;">Loading…</p></div>
+      </div>
+    </div>
+  </main>
+</div>
+<script>
+(async () => {{
+  const res = await fetch('/api/library');
+  const raw = await res.json();
+  const keys = Object.keys(raw);
+  const el = document.getElementById('lib-body');
+  if (!keys.length) {{
+    el.innerHTML = '<div style="padding:48px;text-align:center;background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06);"><p style="font-size:14px;color:#6e6e73;margin:0 0 6px;font-weight:500;">Library is empty</p><p style="font-size:13px;color:#aeaeb2;margin:0;">Open a locked scenario and click <strong>+ Task Library</strong> to save a task here.</p></div>';
+    return;
+  }}
+  el.innerHTML = keys.map(name => {{
+    const entry = raw[name] || {{}};
+    const steps = entry.steps || {{}};
+    const stepIds = Object.keys(steps);
+    const stepRows = stepIds.map(sid => {{
+      const firstLine = (steps[sid] || '').split('\\n')[0];
+      return '<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;"><span style="font-size:11px;font-family:monospace;color:#aeaeb2;flex-shrink:0;">'+sid+'</span><span style="font-size:11px;color:#6e6e73;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'+firstLine+'</span></div>';
+    }}).join('');
+    return '<div class="task-card"><div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;"><div style="flex:1;min-width:0;"><div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;"><span style="font-size:15px;font-weight:700;color:#1d1d1f;">'+name+'</span><span class="badge badge-blue">'+stepIds.length+' steps</span></div><p style="font-size:13px;color:#6e6e73;margin:0 0 10px;line-height:1.5;">'+(entry.description||'')+'</p>'+stepRows+'</div><button onclick="deleteTask('+JSON.stringify(name)+')" class="btn btn-danger" style="font-size:11px;padding:4px 12px;flex-shrink:0;">Delete</button></div></div>';
+  }}).join('');
+}})();
+async function deleteTask(name) {{
+  if (!confirm('Delete task "'+name+'" from the library?')) return;
+  const res = await fetch('/api/library/'+encodeURIComponent(name), {{method:'DELETE'}});
+  if (res.ok) window.location.reload();
+  else alert('Delete failed');
+}}
+</script>
+</body>
+</html>"""
+    return HTMLResponse(html)
 
 
 @app.get("/api/library")
