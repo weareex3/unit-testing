@@ -980,6 +980,29 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
     setTimeout(_refreshShot, 600);
   }});
 
+  // Mouse wheel → scroll live browser
+  wrap.addEventListener('wheel', async (e) => {{
+    e.preventDefault();
+    const key = e.deltaY > 0 ? 'PageDown' : 'PageUp';
+    await fetch(`/api/live/{scenario_id}/key`, {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{key}}),
+    }});
+    setTimeout(_refreshShot, 600);
+  }}, {{passive: false}});
+
+  // Arrow / Page keys scroll live browser (only when not typing in textarea)
+  document.addEventListener('keydown', async (e) => {{
+    if (document.activeElement === cmdOut) return;
+    if (!['ArrowDown','ArrowUp','PageDown','PageUp'].includes(e.key)) return;
+    e.preventDefault();
+    await fetch(`/api/live/{scenario_id}/key`, {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{key: e.key}}),
+    }});
+    setTimeout(_refreshShot, 600);
+  }});
+
   async function saveAndContinue() {{
     const btn = document.getElementById('continue-btn');
     btn.disabled = true; btn.textContent = 'Saving…';
