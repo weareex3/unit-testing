@@ -102,7 +102,16 @@ def run_scenario(
     result = ScenarioResult(scenario_id=scenario.scenario_id, run_id=run_id, passed=False)
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=headless, slow_mo=0 if headless else 400)
+        browser = pw.chromium.launch(
+            headless=headless,
+            slow_mo=0 if headless else 400,
+            args=[
+                "--disable-gpu",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-setuid-sandbox",
+            ],
+        )
         context = browser.new_context(
             record_video_dir=str(runs_dir),
             record_video_size={"width": 1280, "height": 720},

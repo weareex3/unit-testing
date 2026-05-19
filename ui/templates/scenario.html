@@ -670,8 +670,12 @@
   // ── Pre-run questions overlay ────────────────────────────────────────────────
   async function _showQuestionsIfNeeded() {
     const analysis = await (await fetch(`/api/analyse/${SCENARIO_ID}`)).json();
-    const questions = (analysis.questions || []).filter(q => !q.default);
-    if (!questions.length) return {};
+    const allQuestions = analysis.questions || [];
+    // Always include pre-saved defaults in returned answers
+    const preAnswers = {};
+    allQuestions.forEach(q => { if (q.default) preAnswers[q.key] = q.default; });
+    const unanswered = allQuestions.filter(q => !q.default);
+    if (!unanswered.length) return preAnswers;
     return new Promise(resolve => {
       const overlay = document.createElement('div');
       overlay.style.cssText = `position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;`;
@@ -680,10 +684,10 @@
       box.innerHTML = `
         <h2 style="font-size:16px;font-weight:700;margin-bottom:4px;">Before we start</h2>
         <p style="font-size:12px;color:#6b7280;margin-bottom:16px;">Answer these so the script knows what to use.</p>
-        ${questions.map(q => `
+        ${unanswered.map(q => `
           <div style="margin-bottom:12px;">
             <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">${q.question}</label>
-            <input id="q-${q.key}" type="text" value="${q.default||''}" placeholder="Type here…"
+            <input id="q-${q.key}" type="text" value="" placeholder="Type here…"
               style="width:100%;border:1px solid #d1d5db;border-radius:6px;padding:7px 10px;font-size:13px;outline:none;">
           </div>`).join('')}
         <button onclick="this.closest('[style]').dispatchEvent(new CustomEvent('submit',{bubbles:true}))"
@@ -693,8 +697,8 @@
       overlay.appendChild(box);
       document.body.appendChild(overlay);
       overlay.addEventListener('submit', () => {
-        const answers = {};
-        questions.forEach(q => { answers[q.key] = document.getElementById(`q-${q.key}`).value.trim(); });
+        const answers = {...preAnswers};
+        unanswered.forEach(q => { answers[q.key] = document.getElementById(`q-${q.key}`).value.trim(); });
         document.body.removeChild(overlay);
         resolve(answers);
       });
