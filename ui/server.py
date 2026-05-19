@@ -1402,35 +1402,21 @@ def get_library():
 
 @app.post("/api/library/add")
 def add_to_library(
-    library_name: str = Form(...),
-    step_description: str = Form(...),
+    task_name: str = Form(...),
+    task_description: str = Form(...),
     commands: str = Form(...),
 ):
     data = _load_library()
-    data.setdefault(library_name, {})[step_description] = commands
+    data[task_name] = {"description": task_description, "commands": commands}
     _save_library(data)
     threading.Thread(target=_git_push_library, daemon=True).start()
     return JSONResponse({"ok": True})
 
 
-@app.delete("/api/library/{library_name}/{step_key}")
-def delete_library_step(library_name: str, step_key: str):
+@app.delete("/api/library/{task_name}")
+def delete_library_task(task_name: str):
     data = _load_library()
-    lib = data.get(library_name, {})
-    lib.pop(step_key, None)
-    if not lib:
-        data.pop(library_name, None)
-    else:
-        data[library_name] = lib
-    _save_library(data)
-    threading.Thread(target=_git_push_library, daemon=True).start()
-    return JSONResponse({"ok": True})
-
-
-@app.delete("/api/library/{library_name}")
-def delete_library(library_name: str):
-    data = _load_library()
-    data.pop(library_name, None)
+    data.pop(task_name, None)
     _save_library(data)
     threading.Thread(target=_git_push_library, daemon=True).start()
     return JSONResponse({"ok": True})

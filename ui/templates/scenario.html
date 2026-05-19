@@ -165,16 +165,21 @@
 
 <!-- Library modal -->
 <div id="lib-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;">
-  <div style="background:#fff;border-radius:16px;padding:28px;width:420px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
-    <h3 style="font-size:15px;font-weight:700;color:#1d1d1f;margin:0 0 6px;">Add to Library</h3>
-    <p id="lib-desc-preview" style="font-size:12px;color:#6e6e73;margin:0 0 18px;line-height:1.5;"></p>
-    <label style="font-size:12px;font-weight:500;color:#3c3c43;display:block;margin-bottom:6px;">Library name</label>
-    <input id="lib-name-input" type="text" class="input" placeholder="e.g. Proxy" style="margin-bottom:6px;" list="lib-names-list" />
+  <div style="background:#fff;border-radius:16px;padding:28px;width:460px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+    <h3 style="font-size:15px;font-weight:700;color:#1d1d1f;margin:0 0 4px;">Save to Task Library</h3>
+    <p style="font-size:12px;color:#aeaeb2;margin:0 0 18px;">Claude will match the intent of future steps to this task automatically.</p>
+
+    <label style="font-size:12px;font-weight:500;color:#3c3c43;display:block;margin-bottom:5px;">Task name</label>
+    <input id="lib-name-input" type="text" class="input" placeholder="e.g. Proxy Login, Navigate to Module" style="margin-bottom:14px;" list="lib-names-list" />
     <datalist id="lib-names-list"></datalist>
-    <p style="font-size:11px;color:#aeaeb2;margin:0 0 18px;">Type an existing library name or create a new one.</p>
+
+    <label style="font-size:12px;font-weight:500;color:#3c3c43;display:block;margin-bottom:5px;">What does this task do? <span style="font-weight:400;color:#aeaeb2;">(helps Claude match it)</span></label>
+    <textarea id="lib-desc-input" rows="3" class="input" style="margin-bottom:18px;font-size:12px;resize:none;"
+      placeholder="e.g. Switching into another user's account using the SuccessFactors proxy feature"></textarea>
+
     <div style="display:flex;gap:8px;">
       <button onclick="closeLibModal()" class="btn btn-ghost" style="flex:1;justify-content:center;">Cancel</button>
-      <button onclick="saveToLibrary()" class="btn btn-primary" style="flex:1;justify-content:center;">Save to Library</button>
+      <button onclick="saveToLibrary()" class="btn btn-primary" style="flex:1;justify-content:center;">Save Task</button>
     </div>
     <p id="lib-save-status" style="font-size:12px;text-align:center;margin:10px 0 0;color:#34c759;font-weight:600;display:none;"></p>
   </div>
@@ -1177,44 +1182,41 @@
   });
 
   // ── Step Library ─────────────────────────────────────────────────────────────
-  let _libStepDesc = '';
   let _libStepCmds = '';
 
   async function openLibModal(desc, cmds) {
-    _libStepDesc = desc;
     _libStepCmds = cmds;
-    document.getElementById('lib-desc-preview').textContent = desc;
     document.getElementById('lib-save-status').style.display = 'none';
-    // Pre-populate datalist with existing library names
+    document.getElementById('lib-name-input').value = '';
+    document.getElementById('lib-desc-input').value = '';
+    // Pre-populate datalist with existing task names
     const res = await fetch('/api/library');
     if (res.ok) {
       const libs = await res.json();
       const dl = document.getElementById('lib-names-list');
       dl.innerHTML = Object.keys(libs).map(n => `<option value="${n}">`).join('');
-      // Auto-fill if only one library exists
-      const names = Object.keys(libs);
-      if (names.length === 1) document.getElementById('lib-name-input').value = names[0];
     }
-    const modal = document.getElementById('lib-modal');
-    modal.style.display = 'flex';
+    document.getElementById('lib-modal').style.display = 'flex';
+    document.getElementById('lib-name-input').focus();
   }
 
   function closeLibModal() {
     document.getElementById('lib-modal').style.display = 'none';
-    document.getElementById('lib-name-input').value = '';
   }
 
   async function saveToLibrary() {
     const name = document.getElementById('lib-name-input').value.trim();
-    if (!name) { alert('Enter a library name'); return; }
+    const desc = document.getElementById('lib-desc-input').value.trim();
+    if (!name) { alert('Enter a task name'); return; }
+    if (!desc) { alert('Describe what this task does so Claude can match it'); return; }
     const fd = new FormData();
-    fd.append('library_name', name);
-    fd.append('step_description', _libStepDesc);
+    fd.append('task_name', name);
+    fd.append('task_description', desc);
     fd.append('commands', _libStepCmds);
     const res = await fetch('/api/library/add', { method: 'POST', body: fd });
     const status = document.getElementById('lib-save-status');
     if (res.ok) {
-      status.textContent = `Saved to "${name}" library`;
+      status.textContent = `Task "${name}" saved to library`;
       status.style.color = '#34c759';
       status.style.display = 'block';
       setTimeout(closeLibModal, 1500);

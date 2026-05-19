@@ -436,34 +436,51 @@ def _load_feedback(scenario_id: str) -> dict:
 
 
 def _library_lookup(step_description: str) -> str:
-    """Check global step library for a command matching this step description.
-    Uses fuzzy matching so minor wording differences still match (threshold 0.75)."""
-    import json, re
-    from difflib import SequenceMatcher
+    """Ask Claude if this step matches any saved task in the global library.
+    Library tasks are matched by intent, not text — so 'Log in as another user'
+    matches the 'Proxy' task even if worded completely differently."""
+    import json, os
     lib_file = Path(__file__).resolve().parent.parent / "storage" / "global" / "step_library.json"
     if not lib_file.exists():
         return ""
     try:
-        libraries = json.loads(lib_file.read_text())
+        library = json.loads(lib_file.read_text())
     except Exception:
         return ""
-    def _norm(s: str) -> str:
-        return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", s.lower())).strip()
-    needle = _norm(step_description)
-    best_score = 0.0
-    best_cmd = ""
-    for _lib_name, steps in libraries.items():
-        for desc, cmd in steps.items():
-            hay = _norm(desc)
-            if hay == needle:
-                return cmd  # exact — no need to check further
-            score = SequenceMatcher(None, needle, hay).ratio()
-            if score > best_score:
-                best_score = score
-                best_cmd = cmd
-    if best_score >= 0.75:
-        print(f"  [library] fuzzy match score={best_score:.2f} — using stored commands")
-        return best_cmd
+    if not library:
+        return ""
+
+    task_lines = "\n".join(
+        f"- {name}: {entry.get('description', name)}"
+        for name, entry in library.items()
+        if isinstance(entry, dict) and entry.get("commands")
+    )
+    if not task_lines:
+        return ""
+
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return ""
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=30,
+            messages=[{"role": "user", "content": (
+                f"You are matching a SAP SuccessFactors test step to a library of saved tasks.\n\n"
+                f"Step: \"{step_description}\"\n\n"
+                f"Saved tasks:\n{task_lines}\n\n"
+                f"If this step is asking the user to perform one of the saved tasks, reply with ONLY "
+                f"the exact task name. If it does not match any task, reply with ONLY: NO_MATCH"
+            )}],
+        )
+        result = msg.content[0].text.strip()
+        if result != "NO_MATCH" and result in library:
+            print(f"  [library] matched task '{result}' — using stored commands")
+            return library[result]["commands"]
+    except Exception as exc:
+        print(f"  [library] lookup error: {exc}")
     return ""
 
 

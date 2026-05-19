@@ -3,12 +3,8 @@
 
 {% block content %}
 <style>
-  .lib-section { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,0.06); overflow:hidden; margin-bottom:16px; }
-  .lib-header { display:flex; align-items:center; justify-content:space-between; padding:16px 20px; border-bottom:1px solid rgba(0,0,0,0.06); }
-  .lib-step { display:flex; align-items:flex-start; gap:14px; padding:13px 20px; border-bottom:1px solid rgba(0,0,0,0.04); }
-  .lib-step:last-child { border-bottom:none; }
-  .lib-step-desc { flex:1; font-size:13px; color:#1d1d1f; line-height:1.5; }
-  .lib-step-cmds { font-size:11px; font-family:'SF Mono','Fira Code',monospace; color:#6e6e73; background:#f5f5f7; border-radius:6px; padding:6px 10px; margin-top:5px; white-space:pre-wrap; max-height:60px; overflow:hidden; }
+  .task-card { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,0.06); padding:22px 24px; margin-bottom:12px; }
+  .task-cmds { font-size:11px; font-family:'SF Mono','Fira Code',monospace; color:#6e6e73; background:#f5f5f7; border-radius:8px; padding:10px 13px; white-space:pre-wrap; max-height:80px; overflow:hidden; margin-top:10px; }
 </style>
 
 <div class="topbar">
@@ -24,36 +20,30 @@
 
     <div style="margin-bottom:24px;">
       <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:4px;">Step Library</h1>
-      <p style="font-size:13px;color:#6e6e73;">Locked steps saved here fire automatically on any module for any client — no re-recording needed.</p>
+      <p style="font-size:13px;color:#6e6e73;">Saved tasks fire automatically on any module, any client. Claude matches the intent — not the exact wording.</p>
     </div>
 
     {% if not libraries %}
     <div style="padding:48px;text-align:center;background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
       <p style="font-size:14px;color:#6e6e73;margin:0 0 6px;font-weight:500;">Library is empty</p>
-      <p style="font-size:13px;color:#aeaeb2;margin:0;">Open any scenario, find a locked step and click <strong>+ Library</strong> to add it here.</p>
+      <p style="font-size:13px;color:#aeaeb2;margin:0;">Open any scenario, find a locked step and click <strong>+ Library</strong> to add a task here.</p>
     </div>
     {% endif %}
 
-    {% for lib_name, steps in libraries.items() %}
-    <div class="lib-section">
-      <div class="lib-header">
-        <div>
-          <span style="font-size:15px;font-weight:700;color:#1d1d1f;">{{ lib_name }}</span>
-          <span style="font-size:12px;color:#aeaeb2;margin-left:8px;">{{ steps | length }} step{{ 's' if steps | length != 1 }}</span>
-        </div>
-        <button onclick="deleteLibrary('{{ lib_name }}')" class="btn btn-danger" style="font-size:11px;padding:4px 12px;">Delete library</button>
-      </div>
-      {% for desc, cmds in steps.items() %}
-      <div class="lib-step">
+    {% for task_name, entry in libraries.items() %}
+    <div class="task-card">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
         <div style="flex:1;min-width:0;">
-          <p class="lib-step-desc">{{ desc }}</p>
-          <div class="lib-step-cmds">{{ cmds }}</div>
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <span style="font-size:15px;font-weight:700;color:#1d1d1f;">{{ task_name }}</span>
+            <span class="badge badge-blue">Task</span>
+          </div>
+          <p style="font-size:13px;color:#6e6e73;margin:0;line-height:1.5;">{{ entry.description }}</p>
+          <div class="task-cmds">{{ entry.commands }}</div>
         </div>
-        <button onclick="deleteStep('{{ lib_name }}', '{{ desc | replace("'", "\\'") }}')"
-          style="flex-shrink:0;background:none;border:none;cursor:pointer;color:#aeaeb2;font-size:18px;line-height:1;padding:2px 6px;border-radius:4px;transition:color 0.1s;"
-          onmouseover="this.style.color='#ff3b30'" onmouseout="this.style.color='#aeaeb2'">×</button>
+        <button onclick="deleteTask('{{ task_name | replace("'", "\\'") }}')"
+          class="btn btn-danger" style="font-size:11px;padding:4px 12px;flex-shrink:0;">Delete</button>
       </div>
-      {% endfor %}
     </div>
     {% endfor %}
 
@@ -61,19 +51,9 @@
 </div>
 
 <script>
-  async function deleteStep(libName, stepDesc) {
-    if (!confirm(`Remove "${stepDesc}" from "${libName}"?`)) return;
-    const key = encodeURIComponent(stepDesc);
-    const lib = encodeURIComponent(libName);
-    const res = await fetch(`/api/library/${lib}/${key}`, { method: 'DELETE' });
-    if (res.ok) window.location.reload();
-    else alert('Delete failed');
-  }
-
-  async function deleteLibrary(libName) {
-    if (!confirm(`Delete entire "${libName}" library? This cannot be undone.`)) return;
-    const lib = encodeURIComponent(libName);
-    const res = await fetch(`/api/library/${lib}`, { method: 'DELETE' });
+  async function deleteTask(taskName) {
+    if (!confirm(`Delete task "${taskName}" from the library?`)) return;
+    const res = await fetch(`/api/library/${encodeURIComponent(taskName)}`, { method: 'DELETE' });
     if (res.ok) window.location.reload();
     else alert('Delete failed');
   }
