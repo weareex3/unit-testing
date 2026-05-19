@@ -135,8 +135,9 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
                         page.wait_for_timeout(300)
                     elif atype == "scroll":
                         px = action.get("px", 400)
-                        page.evaluate(f"window.scrollBy(0, {px})")
-                        page.wait_for_timeout(300)
+                        page.mouse.move(640, 360)
+                        page.mouse.wheel(0, px)
+                        page.wait_for_timeout(400)
                     elif atype == "key":
                         k = action["key"]
                         scroll_map = {
@@ -144,10 +145,11 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
                             "ArrowDown": 120, "ArrowUp": -120,
                         }
                         if k in scroll_map:
-                            page.evaluate(f"window.scrollBy(0, {scroll_map[k]})")
+                            page.mouse.move(640, 360)
+                            page.mouse.wheel(0, scroll_map[k])
                         else:
                             page.keyboard.press(k)
-                        page.wait_for_timeout(300)
+                        page.wait_for_timeout(400)
                 except Exception as _e:
                     print(f"  [live-action] {_e}")
             # Take a fresh screenshot
