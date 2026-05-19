@@ -1,1 +1,11 @@
-{}
+{
+  "Proxy Login": {
+    "description": "Switching into another users SuccessFactors session using the proxy feature to perform actions on their behalf",
+    "steps": {
+      "LOGIN-102-01": "NAVIGATE: https://hcm.successfactors.com\nWAIT: 2000",
+      "LOGIN-102-02": "CLICK_XY: 1200, 45\nWAIT: 1000",
+      "LOGIN-102-03": "CLICK: Switch User\nWAIT: 1500",
+      "LOGIN-102-04": "TYPE: testuser@company.com\nCLICK: Search\nWAIT: 2000"
+    }
+  }
+}

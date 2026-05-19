@@ -351,6 +351,7 @@ app.mount("/runs", StaticFiles(directory=str(RUNS_DIR)), name="runs")
 CATEGORY_RULES = [
     ("Pre-Requisites & System Access", lambda s: s.scenario_id.startswith("LOGIN")),
     ("Recruiting (RCM) — End-to-End Lifecycle", lambda s: s.scenario_id.startswith("RCM")),
+    ("Employee Central (EC) — Core HR", lambda s: s.scenario_id.startswith("EC")),
 ]
 
 
@@ -358,7 +359,13 @@ def _load_scenarios():
     workbooks = sorted(SCRIPTS_DIR.glob("EX3_*_Workbook*.xlsx"))
     if not workbooks:
         return []
-    return parse_workbook(str(workbooks[0]))
+    scenarios = []
+    for wb in workbooks:
+        try:
+            scenarios.extend(parse_workbook(str(wb)))
+        except Exception as e:
+            print(f"[loader] skipped {wb.name}: {e}")
+    return scenarios
 
 
 def _scenario_status(scenario_id: str, total_steps: int = 0) -> dict:
@@ -1518,6 +1525,48 @@ async function deleteTask(name) {{
 @app.get("/api/library")
 def get_library():
     return JSONResponse(_load_library())
+
+
+@app.get("/api/library/match/{scenario_id}")
+def library_match(scenario_id: str):
+    """Check if this scenario matches a saved library task. Used for pre-run confirmation."""
+    library = _load_library()
+    if not library:
+        return JSONResponse({"match": None})
+    scenarios = _load_scenarios()
+    scenario = next((s for s in scenarios if s.scenario_id == scenario_id), None)
+    if not scenario:
+        return JSONResponse({"match": None})
+    task_lines = "\n".join(
+        f"- {name}: {entry.get('description', name)}"
+        for name, entry in library.items()
+        if isinstance(entry, dict) and entry.get("steps")
+    )
+    if not task_lines:
+        return JSONResponse({"match": None})
+    summary = "\n".join(f"  {i+1}. {s.action}" for i, s in enumerate(scenario.steps[:8]))
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key:
+        return JSONResponse({"match": None})
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=40,
+            messages=[{"role": "user", "content": (
+                f"Match this SAP SuccessFactors test scenario to a saved task library.\n\n"
+                f"Scenario steps:\n{summary}\n\nSaved tasks:\n{task_lines}\n\n"
+                f"If this scenario performs one of the saved tasks, reply with ONLY the exact task name. "
+                f"Otherwise reply with ONLY: NO_MATCH"
+            )}],
+        )
+        result = msg.content[0].text.strip()
+        if result != "NO_MATCH" and result in library:
+            return JSONResponse({"match": result, "description": library[result].get("description", "")})
+    except Exception as exc:
+        print(f"[library match] error: {exc}")
+    return JSONResponse({"match": None})
 
 
 @app.post("/api/library/add")
