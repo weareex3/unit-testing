@@ -142,6 +142,7 @@ def run_scenario(
             feedback_data = _load_feedback(scenario.scenario_id)
             expected_overrides = _load_expected_overrides(scenario.scenario_id)
             _scenario_ctx = ""
+            _live_seed_shot = ""  # last real screenshot from an automated step
 
             for i, step in enumerate(steps, 1):
                 print(f"\n  [step {i}/{len(steps)}] {step.step_id}")
@@ -176,12 +177,16 @@ def run_scenario(
                         )
                     _scenario_ctx = "\n".join(_ctx_lines)
 
-                # Live mode: pause BEFORE the step so user drives it manually
-                if live_mode and pause_callback:
+                # Live mode: run steps that have commands automatically (they always
+                # produce a real screenshot after interaction); only pause for steps
+                # without commands so the user drives them manually.
+                # This means the live overlay is always seeded with a real screenshot
+                # from the last automated step — never a blank-page capture.
+                if live_mode and pause_callback and not _has_direct_commands(step_feedback):
                     fix = pause_callback(
                         scenario_id=scenario.scenario_id,
                         step_id=step.step_id,
-                        screenshot_path="",
+                        screenshot_path=_live_seed_shot,
                         run_id=run_id,
                         error_message=f"Step {i}/{len(steps)}: {step.action}",
                         page=page,
@@ -192,8 +197,9 @@ def run_scenario(
                     post_shot = str(runs_dir / f"{step.step_id}.png")
                     try:
                         page.screenshot(path=post_shot)
+                        _live_seed_shot = post_shot
                     except Exception:
-                        post_shot = ""
+                        post_shot = _live_seed_shot
                     step_result = StepResult(
                         step_id=step.step_id, passed=True,
                         duration_s=0, screenshot_path=post_shot,
@@ -202,6 +208,8 @@ def run_scenario(
                     # Run the step — vision-first, keyword dispatch as fallback
                     step_result = _run_step(page, step, str(runs_dir), feedback=step_feedback,
                                             scenario_context=_scenario_ctx)
+                    if step_result.screenshot_path and live_mode:
+                        _live_seed_shot = step_result.screenshot_path
 
                 # AFTER the step, check if user has requested manual control.
                 # By now SF is loaded and the screenshot will be a real page, not blank.

@@ -106,16 +106,15 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
         _LIVE_SHOT_PATHS[scenario_id] = shot_path
         _LIVE_QUEUES[scenario_id] = []
 
-        # Take the first screenshot here, in the runner thread (same thread as
-        # Playwright). Wait two animation frames so the browser compositor has
-        # actually painted before we capture — this is the reliable fix for
-        # black screenshots in headless Chrome.
-        try:
-            page.evaluate("new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r)))")
-            page.screenshot(path=str(shot_path))
-            print(f"  [live-seed] seed screenshot {shot_path.stat().st_size // 1024}KB")
-        except Exception as _seed_exc:
-            print(f"  [live-seed] seed screenshot failed: {_seed_exc}")
+        # Seed with the screenshot from the last automated step — always a real
+        # page capture taken after browser interactions, never a blank.
+        if screenshot_path and Path(screenshot_path).exists():
+            import shutil as _shutil
+            try:
+                _shutil.copy2(screenshot_path, shot_path)
+                print(f"  [live-seed] seeded {shot_path.stat().st_size // 1024}KB from {Path(screenshot_path).name}")
+            except Exception:
+                pass
 
         print(f"  [pause] {scenario_id} paused on {step_id} — live control active")
 
