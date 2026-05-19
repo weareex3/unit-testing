@@ -135,7 +135,6 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
                         page.wait_for_timeout(300)
                     elif atype == "scroll":
                         px = action.get("px", 400)
-                        page.mouse.move(640, 360)
                         page.mouse.wheel(0, px)
                         page.wait_for_timeout(400)
                     elif atype == "key":
@@ -145,7 +144,6 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
                             "ArrowDown": 120, "ArrowUp": -120,
                         }
                         if k in scroll_map:
-                            page.mouse.move(640, 360)
                             page.mouse.wheel(0, scroll_map[k])
                         else:
                             page.keyboard.press(k)
@@ -1008,7 +1006,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
       .catch(() => {{}});
   }}
   _refreshShot();
-  _refreshTimer = setInterval(_refreshShot, 2000);
+  _refreshTimer = setInterval(_refreshShot, 5000);
 
   // In live mode clicks ALSO fire on the real browser
   const _origClick = wrap.onclick;
