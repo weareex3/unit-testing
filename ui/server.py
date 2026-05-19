@@ -586,9 +586,13 @@ async def trigger_run(scenario_id: str, request: Request):
     # Accept optional pre-run answers (e.g. proxy_name, candidate_name) + supervised flag
     try:
         body = await request.json()
-        pre_answers = {k: v for k, v in body.items() if k not in ("supervised", "live")} if isinstance(body, dict) else {}
+        pre_answers = {k: v for k, v in body.items() if k not in ("supervised", "live", "_lib_vars")} if isinstance(body, dict) else {}
         supervised = bool(body.get("supervised", False)) if isinstance(body, dict) else False
         live_mode = bool(body.get("live", False)) if isinstance(body, dict) else False
+        # Library template variables (e.g. target_employee_name) — merge into context
+        lib_vars = body.get("_lib_vars") if isinstance(body, dict) else None
+        if isinstance(lib_vars, dict):
+            pre_answers.update({k: v for k, v in lib_vars.items() if isinstance(v, str) and v})
     except Exception:
         pre_answers = {}
         supervised = False
@@ -1540,13 +1544,18 @@ def library_match(scenario_id: str):
 
     all_text = " ".join(s.action.lower() for s in scenario.steps)
 
+    def _entry_variables(entry: dict) -> list[str]:
+        import re
+        all_cmds = "\n".join(entry.get("steps", {}).values())
+        return sorted(set(re.findall(r'\{\{(\w+)\}\}', all_cmds)))
+
     # Keyword match first — fast and reliable for demo
     for task_name, entry in library.items():
         if not isinstance(entry, dict) or not entry.get("steps"):
             continue
         keywords = entry.get("keywords", [])
         if any(kw.lower() in all_text for kw in keywords):
-            return JSONResponse({"match": task_name, "description": entry.get("description", "")})
+            return JSONResponse({"match": task_name, "description": entry.get("description", ""), "variables": _entry_variables(entry)})
 
     # Claude fallback for tasks without keywords
     task_lines = "\n".join(
@@ -1573,7 +1582,7 @@ def library_match(scenario_id: str):
         )
         result = msg.content[0].text.strip()
         if result != "NO_MATCH" and result in library:
-            return JSONResponse({"match": result, "description": library[result].get("description", "")})
+            return JSONResponse({"match": result, "description": library[result].get("description", ""), "variables": _entry_variables(library[result])})
     except Exception as exc:
         print(f"[library match] error: {exc}")
     return JSONResponse({"match": None})

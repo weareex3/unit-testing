@@ -174,10 +174,11 @@
       <p id="lib-match-name" style="font-size:15px;font-weight:700;color:#0050a0;margin:0 0 4px;"></p>
       <p id="lib-match-desc" style="font-size:12px;color:#0071e3;margin:0;line-height:1.5;opacity:0.8;"></p>
     </div>
-    <p style="font-size:12px;color:#6e6e73;margin:0 0 18px;">The saved commands will be used automatically — no re-recording needed.</p>
+    <!-- Variable fields injected here -->
+    <div id="lib-match-vars" style="margin-bottom:16px;"></div>
     <div style="display:flex;gap:8px;">
-      <button onclick="closeMatchModal(); _pendingRun && _pendingRun(false)" class="btn btn-ghost" style="flex:1;justify-content:center;">Skip — run fresh</button>
-      <button onclick="closeMatchModal(); _pendingRun && _pendingRun(true)" class="btn btn-primary" style="flex:1;justify-content:center;">
+      <button onclick="_skipLibraryRun()" class="btn btn-ghost" style="flex:1;justify-content:center;">Skip — run fresh</button>
+      <button onclick="_confirmLibraryRun()" class="btn btn-primary" style="flex:1;justify-content:center;">
         <svg width="13" height="13" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         Run with Library Task
       </button>
@@ -230,12 +231,41 @@
     document.getElementById('lib-match-name').textContent = matchData.match;
     document.getElementById('lib-match-desc').textContent = matchData.description || '';
     _pendingRun = onConfirm;
+    const vars = matchData.variables || [];
+    const varsEl = document.getElementById('lib-match-vars');
+    if (vars.length) {
+      varsEl.innerHTML = vars.map(v => `
+        <div style="margin-bottom:12px;">
+          <label style="font-size:12px;font-weight:500;color:#3c3c43;display:block;margin-bottom:5px;">${v.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase())}</label>
+          <input id="lib-var-${v}" type="text" class="input" placeholder="Enter ${v.replace(/_/g,' ')}" />
+        </div>`).join('');
+      setTimeout(() => document.getElementById(`lib-var-${vars[0]}`)?.focus(), 100);
+    } else {
+      varsEl.innerHTML = '<p style="font-size:12px;color:#6e6e73;margin:0;">The saved commands will run automatically — no re-recording needed.</p>';
+    }
     document.getElementById('lib-match-modal').style.display = 'flex';
   }
 
   function closeMatchModal() {
     document.getElementById('lib-match-modal').style.display = 'none';
+  }
+
+  function _skipLibraryRun() {
+    const cb = _pendingRun;
     _pendingRun = null;
+    closeMatchModal();
+    cb && cb(null);
+  }
+
+  function _confirmLibraryRun() {
+    const libVars = {};
+    document.querySelectorAll('[id^="lib-var-"]').forEach(el => {
+      libVars[el.id.replace('lib-var-', '')] = el.value.trim();
+    });
+    const cb = _pendingRun;
+    _pendingRun = null;
+    closeMatchModal();
+    cb && cb(libVars);
   }
 
   // ── Fixed-bottom failure bar ─────────────────────────────────────────────────
@@ -779,18 +809,19 @@
     label.textContent = 'Checking…';
 
     // Check task library for a match before running
+    let _libVars = null;
     const matchData = await _checkLibraryMatch();
     if (matchData) {
       label.textContent = 'Match found…';
-      await new Promise(resolve => {
-        _showMatchModal(matchData, (confirmed) => { resolve(confirmed); });
+      _libVars = await new Promise(resolve => {
+        _showMatchModal(matchData, resolve);
       });
-      // re-enable briefly while user decided — then continue regardless
       label.textContent = supervised ? 'Running (supervised)…' : 'Running…';
     }
 
     const answers = await _showQuestionsIfNeeded();
     if (supervised) answers.supervised = true;
+    if (_libVars) answers._lib_vars = _libVars;
 
     label.textContent = supervised ? 'Running (supervised)…' : 'Running…';
     const res = await fetch(`/api/run/${SCENARIO_ID}`, {
