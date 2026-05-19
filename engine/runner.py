@@ -178,41 +178,10 @@ def run_scenario(
 
                 # Live mode: pause BEFORE the step so user drives it manually
                 if live_mode and pause_callback:
-                    pre_shot = str(runs_dir / f"{step.step_id}_pre.png")
-                    for _attempt in range(10):
-                        try:
-                            page.wait_for_load_state("networkidle", timeout=5000)
-                        except Exception:
-                            pass
-                        page.wait_for_timeout(1500)
-                        # Move mouse to centre — forces Chrome to composite/flush the
-                        # frame. Without this first interaction headless Chrome can
-                        # return a black screenshot even though the DOM is loaded.
-                        try:
-                            page.mouse.move(640, 360)
-                        except Exception:
-                            pass
-                        # Force a layout flush so the compositor has something to paint
-                        try:
-                            page.evaluate("document.body.getBoundingClientRect()")
-                        except Exception:
-                            pass
-                        page.wait_for_timeout(300)
-                        try:
-                            page.screenshot(path=pre_shot, full_page=False)
-                            size = os.path.getsize(pre_shot)
-                            if size > 30000:
-                                print(f"  [live-shot] got real screenshot on attempt {_attempt+1} ({size//1024}KB)")
-                                break
-                            print(f"  [live-shot] attempt {_attempt+1}: page still black ({size} bytes), waiting...")
-                        except Exception as _e:
-                            print(f"  [live-shot] screenshot error: {_e}")
-                    else:
-                        pre_shot = ""
                     fix = pause_callback(
                         scenario_id=scenario.scenario_id,
                         step_id=step.step_id,
-                        screenshot_path=pre_shot,
+                        screenshot_path="",
                         run_id=run_id,
                         error_message=f"Step {i}/{len(steps)}: {step.action}",
                         page=page,
@@ -224,7 +193,7 @@ def run_scenario(
                     try:
                         page.screenshot(path=post_shot)
                     except Exception:
-                        post_shot = pre_shot
+                        post_shot = ""
                     step_result = StepResult(
                         step_id=step.step_id, passed=True,
                         duration_s=0, screenshot_path=post_shot,
