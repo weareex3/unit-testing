@@ -1072,6 +1072,27 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
     }}, 1500);
   }}
 
+  // Type into live browser
+  async function sendType() {{
+    const inp = document.getElementById('type-input');
+    const text = inp.value;
+    if (!text) return;
+    await fetch(`/api/live/{scenario_id}/type`, {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{text}}),
+    }});
+    // Also record it in the commands log
+    const cur = cmdOut.value.trim();
+    cmdOut.value = cur ? cur + '\\nTYPE: ' + text : 'TYPE: ' + text;
+    inp.value = '';
+    setTimeout(_refreshShot, 700);
+  }}
+
+  // Enter in type input fires sendType
+  document.getElementById('type-input')?.addEventListener('keydown', (e) => {{
+    if (e.key === 'Enter') {{ e.preventDefault(); sendType(); }}
+  }});
+
   function _showFinishState() {{
     const h1 = document.querySelector('#header h1');
     if (h1) h1.innerHTML = 'All steps complete ✔ &nbsp;<span style="color:#9ca3af;font-weight:normal;font-size:11px;">Keep clicking if needed, then click Finish</span>';
@@ -1131,7 +1152,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
   #cmd-panel {{ background:#1a1a1a; border-top:1px solid #333; padding:8px 16px; flex-shrink:0; display:flex; align-items:flex-start; gap:8px; }}
   #cmd-out {{ flex:1; background:#000; color:#0f0; font-size:12px; padding:6px 10px; border-radius:4px; border:1px solid #333; min-height:40px; resize:vertical; font-family:monospace; }}
   #status {{ font-size:11px; color:#aaa; }}
-  {'#live-badge{background:#16a34a;color:#fff;font-size:10px;padding:2px 7px;border-radius:10px;font-weight:bold;letter-spacing:.05em;}' if live else ''}
+  {'#live-badge{background:#16a34a;color:#fff;font-size:10px;padding:2px 7px;border-radius:10px;font-weight:bold;letter-spacing:.05em;} #type-row{display:flex;align-items:center;gap:6px;background:#0d1117;border-top:1px solid #333;padding:5px 16px;flex-shrink:0;} #type-input{flex:1;background:#000;color:#0f0;font-size:12px;padding:4px 8px;border-radius:4px;border:1px solid #555;font-family:monospace;} #type-input::placeholder{color:#555;}' if live else ''}
 </style>
 </head>
 <body>
@@ -1145,6 +1166,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
   {save_btn}
   {'<button onclick="window.location.href=\'/scenario/' + scenario_id + '\'" style="background:#374151;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;">← Back</button>' if live else ''}
 </div>
+{'<div id="type-row"><span style="color:#9ca3af;font-size:11px;white-space:nowrap;">Type into field:</span><input id="type-input" type="text" placeholder="click a field first, then type here and press Enter" autocomplete="off" /><button onclick="sendType()" style="background:#2563eb;color:#fff;border:none;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;white-space:nowrap;">Type →</button></div>' if live else ''}
 <div id="img-wrap">
   <img id="shot" src="{img_url}" draggable="false" />
 </div>
