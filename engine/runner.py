@@ -150,8 +150,13 @@ def run_scenario(
                 print(f"\n  [step {i}/{len(steps)}] {step.step_id}")
                 print(f"           {step.action[:120]}")
 
-                # Approved playbook beats everything; fall back to regular feedback
+                # Approved playbook beats everything; fall back to regular feedback then library
                 step_feedback = approved_cmds.get(step.step_id) or feedback_data.get(step.step_id, "")
+                if not step_feedback:
+                    lib_cmd = _library_lookup(step.action)
+                    if lib_cmd:
+                        print(f"  [library] matched global step library — using stored commands")
+                        step_feedback = lib_cmd
                 if not step_feedback:
                     matched = _match_pattern(step.action)
                     if matched:
@@ -428,6 +433,26 @@ def _load_feedback(scenario_id: str) -> dict:
             pass
 
     return {**global_data, **client_data}
+
+
+def _library_lookup(step_description: str) -> str:
+    """Check global step library for a command matching this step description."""
+    import json, re
+    lib_file = Path(__file__).resolve().parent.parent / "storage" / "global" / "step_library.json"
+    if not lib_file.exists():
+        return ""
+    try:
+        libraries = json.loads(lib_file.read_text())
+    except Exception:
+        return ""
+    def _norm(s: str) -> str:
+        return re.sub(r"\s+", " ", re.sub(r"[^\w\s]", "", s.lower())).strip()
+    needle = _norm(step_description)
+    for _lib_name, steps in libraries.items():
+        for desc, cmd in steps.items():
+            if _norm(desc) == needle:
+                return cmd
+    return ""
 
 
 def _load_approved_commands(scenario_id: str) -> dict:

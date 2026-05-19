@@ -220,6 +220,41 @@ def _confirm_callback(scenario_id: str, step_id: str, screenshot_path: str, run_
 VALID_STATUSES = {"pass", "fail", "blocked", "not_tested"}
 FEEDBACK_FILE = STORAGE_DIR / "step_feedback.json"
 APPROVED_FILE = STORAGE_DIR / "approved.json"
+LIBRARY_FILE = ROOT / "storage" / "global" / "step_library.json"
+
+
+# ── Global step library ───────────────────────────────────────────────────────
+
+def _load_library() -> dict:
+    if LIBRARY_FILE.exists():
+        try:
+            return json.loads(LIBRARY_FILE.read_text())
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_library(data: dict) -> None:
+    LIBRARY_FILE.write_text(json.dumps(data, indent=2))
+
+
+def _git_push_library():
+    import subprocess
+    remote = _git_remote_with_token()
+    try:
+        lib_path = str(LIBRARY_FILE.relative_to(ROOT))
+        subprocess.run(["git", "-C", str(ROOT), "add", lib_path], check=True, capture_output=True)
+        result = subprocess.run(["git", "-C", str(ROOT), "commit", "-m", "Update step library [auto]"], capture_output=True)
+        if result.returncode != 0 and b"nothing to commit" not in result.stdout + result.stderr:
+            return
+        subprocess.run(["git", "-C", str(ROOT), "pull", "--rebase", remote, "master"], capture_output=True)
+        push = subprocess.run(["git", "-C", str(ROOT), "push", remote, "master"], capture_output=True)
+        if push.returncode == 0:
+            print("[library] pushed to GitHub")
+        else:
+            print(f"[library] push failed: {push.stderr.decode()}")
+    except Exception as exc:
+        print(f"[library] git push error: {exc}")
 
 
 def _load_approved() -> dict:
@@ -1345,3 +1380,57 @@ def set_step_status(scenario_id: str = Form(...), step_id: str = Form(...), stat
             data.pop(scenario_id)
     _save_statuses(data)
     return JSONResponse({"ok": True, "scenario_id": scenario_id, "step_id": step_id, "status": status})
+
+
+# ── Step Library ──────────────────────────────────────────────────────────────
+
+@app.get("/library", response_class=HTMLResponse)
+def library_page(request: Request):
+    libraries = _load_library()
+    return templates.TemplateResponse("library.html", {
+        "request": request,
+        "libraries": libraries,
+        "client_id": CLIENT_ID,
+        "stats": _stats(),
+    })
+
+
+@app.get("/api/library")
+def get_library():
+    return JSONResponse(_load_library())
+
+
+@app.post("/api/library/add")
+def add_to_library(
+    library_name: str = Form(...),
+    step_description: str = Form(...),
+    commands: str = Form(...),
+):
+    data = _load_library()
+    data.setdefault(library_name, {})[step_description] = commands
+    _save_library(data)
+    threading.Thread(target=_git_push_library, daemon=True).start()
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/api/library/{library_name}/{step_key}")
+def delete_library_step(library_name: str, step_key: str):
+    data = _load_library()
+    lib = data.get(library_name, {})
+    lib.pop(step_key, None)
+    if not lib:
+        data.pop(library_name, None)
+    else:
+        data[library_name] = lib
+    _save_library(data)
+    threading.Thread(target=_git_push_library, daemon=True).start()
+    return JSONResponse({"ok": True})
+
+
+@app.delete("/api/library/{library_name}")
+def delete_library(library_name: str):
+    data = _load_library()
+    data.pop(library_name, None)
+    _save_library(data)
+    threading.Thread(target=_git_push_library, daemon=True).start()
+    return JSONResponse({"ok": True})

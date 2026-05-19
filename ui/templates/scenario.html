@@ -142,12 +142,16 @@
             <p style="font-size:12px;color:#6e6e73;margin:0 0 5px;"><span style="font-weight:500;color:#3c3c43;">Data:</span> <code style="font-family:monospace;background:#f5f5f7;padding:1px 6px;border-radius:4px;font-size:11px;">{{ step.test_data }}</code></p>
             {% endif %}
             <p style="font-size:12px;color:#6e6e73;margin:0 0 14px;"><span style="font-weight:500;color:#1a8a3c;">Expected:</span> {{ step.expected_result }}</p>
-            <div style="display:flex;align-items:center;gap:6px;">
+            <div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
               <button data-set="pass" class="status-btn {% if status == 'pass' %}active-pass{% endif %}">Pass</button>
               <button data-set="fail" class="status-btn {% if status == 'fail' %}active-fail{% endif %}">Fail</button>
               <button data-set="blocked" class="status-btn {% if status == 'blocked' %}active-blocked{% endif %}">Blocked</button>
               {% if status != 'not_tested' %}
               <button data-set="not_tested" class="status-btn" style="margin-left:4px;color:#aeaeb2;">Reset</button>
+              {% endif %}
+              {% if step_feedback.get(step.step_id) %}
+              <button onclick="openLibModal('{{ step.action | replace("'", "\\'") }}', {{ step_feedback.get(step.step_id) | tojson }})"
+                style="margin-left:auto;font-size:11px;padding:3px 10px;border-radius:6px;border:1px solid rgba(0,113,227,0.25);background:#e8f1fb;color:#0050a0;cursor:pointer;font-family:inherit;font-weight:500;">+ Library</button>
               {% endif %}
             </div>
           </div>
@@ -156,6 +160,23 @@
       {% endfor %}
     </div>
 
+  </div>
+</div>
+
+<!-- Library modal -->
+<div id="lib-modal" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.45);align-items:center;justify-content:center;">
+  <div style="background:#fff;border-radius:16px;padding:28px;width:420px;max-width:92vw;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+    <h3 style="font-size:15px;font-weight:700;color:#1d1d1f;margin:0 0 6px;">Add to Library</h3>
+    <p id="lib-desc-preview" style="font-size:12px;color:#6e6e73;margin:0 0 18px;line-height:1.5;"></p>
+    <label style="font-size:12px;font-weight:500;color:#3c3c43;display:block;margin-bottom:6px;">Library name</label>
+    <input id="lib-name-input" type="text" class="input" placeholder="e.g. Proxy" style="margin-bottom:6px;" list="lib-names-list" />
+    <datalist id="lib-names-list"></datalist>
+    <p style="font-size:11px;color:#aeaeb2;margin:0 0 18px;">Type an existing library name or create a new one.</p>
+    <div style="display:flex;gap:8px;">
+      <button onclick="closeLibModal()" class="btn btn-ghost" style="flex:1;justify-content:center;">Cancel</button>
+      <button onclick="saveToLibrary()" class="btn btn-primary" style="flex:1;justify-content:center;">Save to Library</button>
+    </div>
+    <p id="lib-save-status" style="font-size:12px;text-align:center;margin:10px 0 0;color:#34c759;font-weight:600;display:none;"></p>
   </div>
 </div>
 
@@ -1153,6 +1174,59 @@
         if (res.ok) window.location.reload();
       });
     });
+  });
+
+  // ── Step Library ─────────────────────────────────────────────────────────────
+  let _libStepDesc = '';
+  let _libStepCmds = '';
+
+  async function openLibModal(desc, cmds) {
+    _libStepDesc = desc;
+    _libStepCmds = cmds;
+    document.getElementById('lib-desc-preview').textContent = desc;
+    document.getElementById('lib-save-status').style.display = 'none';
+    // Pre-populate datalist with existing library names
+    const res = await fetch('/api/library');
+    if (res.ok) {
+      const libs = await res.json();
+      const dl = document.getElementById('lib-names-list');
+      dl.innerHTML = Object.keys(libs).map(n => `<option value="${n}">`).join('');
+      // Auto-fill if only one library exists
+      const names = Object.keys(libs);
+      if (names.length === 1) document.getElementById('lib-name-input').value = names[0];
+    }
+    const modal = document.getElementById('lib-modal');
+    modal.style.display = 'flex';
+  }
+
+  function closeLibModal() {
+    document.getElementById('lib-modal').style.display = 'none';
+    document.getElementById('lib-name-input').value = '';
+  }
+
+  async function saveToLibrary() {
+    const name = document.getElementById('lib-name-input').value.trim();
+    if (!name) { alert('Enter a library name'); return; }
+    const fd = new FormData();
+    fd.append('library_name', name);
+    fd.append('step_description', _libStepDesc);
+    fd.append('commands', _libStepCmds);
+    const res = await fetch('/api/library/add', { method: 'POST', body: fd });
+    const status = document.getElementById('lib-save-status');
+    if (res.ok) {
+      status.textContent = `Saved to "${name}" library`;
+      status.style.color = '#34c759';
+      status.style.display = 'block';
+      setTimeout(closeLibModal, 1500);
+    } else {
+      status.textContent = 'Save failed';
+      status.style.color = '#ff3b30';
+      status.style.display = 'block';
+    }
+  }
+
+  document.getElementById('lib-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeLibModal();
   });
 </script>
 {% endblock %}
