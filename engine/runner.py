@@ -208,8 +208,34 @@ def run_scenario(
                     # Run the step — vision-first, keyword dispatch as fallback
                     step_result = _run_step(page, step, str(runs_dir), feedback=step_feedback,
                                             scenario_context=_scenario_ctx)
-                    if step_result.screenshot_path and live_mode:
+                    if step_result.screenshot_path:
                         _live_seed_shot = step_result.screenshot_path
+                    # In live mode, if the automated step failed, drop into live
+                    # control so the user can click through it instead of hitting
+                    # the error bar
+                    if live_mode and pause_callback and not step_result.passed:
+                        print(f"  [live-fallback] {step.step_id} failed in live mode — handing to user")
+                        fix = pause_callback(
+                            scenario_id=scenario.scenario_id,
+                            step_id=step.step_id,
+                            screenshot_path=_live_seed_shot,
+                            run_id=run_id,
+                            error_message=f"Step {i}/{len(steps)}: {step.action}",
+                            page=page,
+                            live_step=True,
+                        )
+                        if fix and fix.get("commands"):
+                            _save_pattern(step.action, fix["commands"], "live step")
+                        post_shot = str(runs_dir / f"{step.step_id}.png")
+                        try:
+                            page.screenshot(path=post_shot)
+                            _live_seed_shot = post_shot
+                        except Exception:
+                            post_shot = _live_seed_shot
+                        step_result = StepResult(
+                            step_id=step.step_id, passed=True,
+                            duration_s=0, screenshot_path=post_shot,
+                        )
 
                 # AFTER the step, check if user has requested manual control.
                 # By now SF is loaded and the screenshot will be a real page, not blank.
