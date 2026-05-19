@@ -4,14 +4,13 @@
 {% block content %}
 <style>
   .task-card { background:#fff; border-radius:14px; box-shadow:0 1px 3px rgba(0,0,0,0.06); padding:22px 24px; margin-bottom:12px; }
-  .task-cmds { font-size:11px; font-family:'SF Mono','Fira Code',monospace; color:#6e6e73; background:#f5f5f7; border-radius:8px; padding:10px 13px; white-space:pre-wrap; max-height:80px; overflow:hidden; margin-top:10px; }
 </style>
 
 <div class="topbar">
   <nav class="breadcrumb">
     <a href="/" class="breadcrumb-link">Test Hub</a>
     <span class="breadcrumb-sep">/</span>
-    <span class="breadcrumb-current">Step Library</span>
+    <span class="breadcrumb-current">Task Library</span>
   </nav>
 </div>
 
@@ -19,35 +18,34 @@
   <div class="content-inner">
 
     <div style="margin-bottom:24px;">
-      <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:4px;">Step Library</h1>
-      <p style="font-size:13px;color:#6e6e73;">Saved tasks fire automatically on any module, any client. Claude matches the intent — not the exact wording.</p>
+      <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:4px;">Task Library</h1>
+      <p style="font-size:13px;color:#6e6e73;">Saved tasks fire automatically on any module, any client. Claude matches by intent — not exact wording.</p>
     </div>
 
-    {% if not libraries %}
+    {% if not tasks %}
     <div style="padding:48px;text-align:center;background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
       <p style="font-size:14px;color:#6e6e73;margin:0 0 6px;font-weight:500;">Library is empty</p>
-      <p style="font-size:13px;color:#aeaeb2;margin:0;">Open any scenario, find a locked step and click <strong>+ Library</strong> to add a task here.</p>
+      <p style="font-size:13px;color:#aeaeb2;margin:0;">Open a locked scenario and click <strong>+ Task Library</strong> to save a task here.</p>
     </div>
     {% endif %}
 
-    {% for task_name, entry in libraries.items() %}
-    {% set task_steps = entry.get('steps', {}) if entry is mapping else {} %}
+    {% for task in tasks %}
     <div class="task-card">
       <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
         <div style="flex:1;min-width:0;">
           <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-            <span style="font-size:15px;font-weight:700;color:#1d1d1f;">{{ task_name }}</span>
-            <span class="badge badge-blue">{{ task_steps | length }} steps</span>
+            <span style="font-size:15px;font-weight:700;color:#1d1d1f;">{{ task.name }}</span>
+            <span class="badge badge-blue">{{ task.steps | length }} steps</span>
           </div>
-          <p style="font-size:13px;color:#6e6e73;margin:0 0 10px;line-height:1.5;">{{ entry.get('description', '') if entry is mapping else '' }}</p>
-          {% for step_id, cmds in task_steps.items() %}
+          <p style="font-size:13px;color:#6e6e73;margin:0 0 10px;line-height:1.5;">{{ task.description }}</p>
+          {% for step in task.steps %}
           <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
-            <span style="font-size:11px;font-family:monospace;color:#aeaeb2;flex-shrink:0;">{{ step_id }}</span>
-            <span style="font-size:11px;color:#6e6e73;overflow:hidden;text-overflow:ellipsis;">{{ (cmds or '').split('\n') | first }}</span>
+            <span style="font-size:11px;font-family:monospace;color:#aeaeb2;flex-shrink:0;">{{ step.id }}</span>
+            <span style="font-size:11px;color:#6e6e73;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ step.first_line }}</span>
           </div>
           {% endfor %}
         </div>
-        <button onclick="deleteTask('{{ task_name | replace("'", "\\'") }}')"
+        <button onclick="deleteTask('{{ task.name }}')"
           class="btn btn-danger" style="font-size:11px;padding:4px 12px;flex-shrink:0;">Delete</button>
       </div>
     </div>
@@ -58,8 +56,8 @@
 
 <script>
   async function deleteTask(taskName) {
-    if (!confirm(`Delete task "${taskName}" from the library?`)) return;
-    const res = await fetch(`/api/library/${encodeURIComponent(taskName)}`, { method: 'DELETE' });
+    if (!confirm('Delete task "' + taskName + '" from the library?')) return;
+    const res = await fetch('/api/library/' + encodeURIComponent(taskName), { method: 'DELETE' });
     if (res.ok) window.location.reload();
     else alert('Delete failed');
   }
