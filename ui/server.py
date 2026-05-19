@@ -1387,37 +1387,14 @@ def set_step_status(scenario_id: str = Form(...), step_id: str = Form(...), stat
 @app.get("/library", response_class=HTMLResponse)
 def library_page(request: Request):
     try:
-        raw = _load_library()
-    except Exception:
-        raw = {}
-    # Normalise into a flat list the template can iterate safely
-    tasks = []
-    for name, entry in raw.items():
-        if not isinstance(entry, dict):
-            continue
-        step_list = []
-        for sid, cmds in (entry.get("steps") or {}).items():
-            first_line = (cmds or "").split("\n")[0]
-            step_list.append({"id": sid, "first_line": first_line})
-        tasks.append({
-            "name": name,
-            "description": entry.get("description", ""),
-            "steps": step_list,
-        })
-    try:
         stats = _stats()
     except Exception:
         stats = {"total": 0, "passing": 0, "failing": 0, "blocked": 0}
-    try:
-        return templates.TemplateResponse("library.html", {
-            "request": request,
-            "tasks": tasks,
-            "client_id": CLIENT_ID,
-            "stats": stats,
-        })
-    except Exception as exc:
-        import traceback
-        return HTMLResponse(f"<pre style='color:red;padding:20px'>{traceback.format_exc()}</pre>", status_code=500)
+    return templates.TemplateResponse("library.html", {
+        "request": request,
+        "client_id": CLIENT_ID,
+        "stats": stats,
+    })
 
 
 @app.get("/api/library")

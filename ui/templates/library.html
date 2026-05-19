@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% block title %}Step Library — EX3 TestOps{% endblock %}
+{% block title %}Task Library — EX3 TestOps{% endblock %}
 
 {% block content %}
 <style>
@@ -16,50 +16,59 @@
 
 <div class="content">
   <div class="content-inner">
-
     <div style="margin-bottom:24px;">
       <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:4px;">Task Library</h1>
       <p style="font-size:13px;color:#6e6e73;">Saved tasks fire automatically on any module, any client. Claude matches by intent — not exact wording.</p>
     </div>
-
-    {% if not tasks %}
-    <div style="padding:48px;text-align:center;background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06);">
-      <p style="font-size:14px;color:#6e6e73;margin:0 0 6px;font-weight:500;">Library is empty</p>
-      <p style="font-size:13px;color:#aeaeb2;margin:0;">Open a locked scenario and click <strong>+ Task Library</strong> to save a task here.</p>
-    </div>
-    {% endif %}
-
-    {% for task in tasks %}
-    <div class="task-card">
-      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
-        <div style="flex:1;min-width:0;">
-          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
-            <span style="font-size:15px;font-weight:700;color:#1d1d1f;">{{ task.name }}</span>
-            <span class="badge badge-blue">{{ task.steps | length }} steps</span>
-          </div>
-          <p style="font-size:13px;color:#6e6e73;margin:0 0 10px;line-height:1.5;">{{ task.description }}</p>
-          {% for step in task.steps %}
-          <div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
-            <span style="font-size:11px;font-family:monospace;color:#aeaeb2;flex-shrink:0;">{{ step.id }}</span>
-            <span style="font-size:11px;color:#6e6e73;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">{{ step.first_line }}</span>
-          </div>
-          {% endfor %}
-        </div>
-        <button onclick="deleteTask('{{ task.name }}')"
-          class="btn btn-danger" style="font-size:11px;padding:4px 12px;flex-shrink:0;">Delete</button>
-      </div>
-    </div>
-    {% endfor %}
-
+    <div id="lib-body"><p style="color:#aeaeb2;font-size:13px;">Loading…</p></div>
   </div>
 </div>
 
 <script>
-  async function deleteTask(taskName) {
-    if (!confirm('Delete task "' + taskName + '" from the library?')) return;
-    const res = await fetch('/api/library/' + encodeURIComponent(taskName), { method: 'DELETE' });
-    if (res.ok) window.location.reload();
-    else alert('Delete failed');
+(async () => {
+  const res = await fetch('/api/library');
+  const raw = await res.json();
+  const keys = Object.keys(raw);
+  const el = document.getElementById('lib-body');
+
+  if (!keys.length) {
+    el.innerHTML = '<div style="padding:48px;text-align:center;background:#fff;border-radius:14px;box-shadow:0 1px 3px rgba(0,0,0,0.06);"><p style="font-size:14px;color:#6e6e73;margin:0 0 6px;font-weight:500;">Library is empty</p><p style="font-size:13px;color:#aeaeb2;margin:0;">Open a locked scenario and click <strong>+ Task Library</strong> to save a task here.</p></div>';
+    return;
   }
+
+  el.innerHTML = keys.map(name => {
+    const entry = raw[name] || {};
+    const steps = entry.steps || {};
+    const stepIds = Object.keys(steps);
+    const stepRows = stepIds.map(sid => {
+      const firstLine = (steps[sid] || '').split('\n')[0];
+      return `<div style="display:flex;align-items:baseline;gap:8px;margin-bottom:4px;">
+        <span style="font-size:11px;font-family:monospace;color:#aeaeb2;flex-shrink:0;">${sid}</span>
+        <span style="font-size:11px;color:#6e6e73;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${firstLine}</span>
+      </div>`;
+    }).join('');
+
+    return `<div class="task-card">
+      <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
+        <div style="flex:1;min-width:0;">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">
+            <span style="font-size:15px;font-weight:700;color:#1d1d1f;">${name}</span>
+            <span class="badge badge-blue">${stepIds.length} steps</span>
+          </div>
+          <p style="font-size:13px;color:#6e6e73;margin:0 0 10px;line-height:1.5;">${entry.description || ''}</p>
+          ${stepRows}
+        </div>
+        <button onclick="deleteTask(${JSON.stringify(name)})" class="btn btn-danger" style="font-size:11px;padding:4px 12px;flex-shrink:0;">Delete</button>
+      </div>
+    </div>`;
+  }).join('');
+})();
+
+async function deleteTask(name) {
+  if (!confirm('Delete task "' + name + '" from the library?')) return;
+  const res = await fetch('/api/library/' + encodeURIComponent(name), { method: 'DELETE' });
+  if (res.ok) window.location.reload();
+  else alert('Delete failed');
+}
 </script>
 {% endblock %}
