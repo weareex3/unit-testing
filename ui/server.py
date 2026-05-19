@@ -234,6 +234,7 @@ def _git_remote_with_token() -> str:
 
 def _git_push_approved():
     import subprocess
+    remote = _git_remote_with_token()
     try:
         paths = [
             str(APPROVED_FILE.relative_to(ROOT)),
@@ -241,11 +242,18 @@ def _git_push_approved():
         ]
         for p in paths:
             subprocess.run(["git", "-C", str(ROOT), "add", p], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(ROOT), "commit", "-m", "Update approved playbook [auto]"], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(ROOT), "push", _git_remote_with_token(), "master"], check=True, capture_output=True)
-        print("[approved] pushed to GitHub")
+        result = subprocess.run(["git", "-C", str(ROOT), "commit", "-m", "Update approved playbook [auto]"], capture_output=True)
+        if result.returncode != 0 and b"nothing to commit" not in result.stdout + result.stderr:
+            print(f"[approved] commit failed: {result.stderr.decode()}")
+            return
+        subprocess.run(["git", "-C", str(ROOT), "pull", "--rebase", remote, "master"], capture_output=True)
+        push = subprocess.run(["git", "-C", str(ROOT), "push", remote, "master"], capture_output=True)
+        if push.returncode == 0:
+            print("[approved] pushed to GitHub")
+        else:
+            print(f"[approved] push failed: {push.stderr.decode()}")
     except Exception as exc:
-        print(f"[approved] git push skipped: {exc}")
+        print(f"[approved] git push error: {exc}")
 
 
 def _load_feedback() -> dict:
@@ -946,14 +954,23 @@ async def request_control(scenario_id: str, request: Request):
 def _git_push_feedback():
     """Commit and push feedback file to GitHub in the background."""
     import subprocess
+    remote = _git_remote_with_token()
     try:
         feedback_path = str(FEEDBACK_FILE.relative_to(ROOT))
         subprocess.run(["git", "-C", str(ROOT), "add", feedback_path], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(ROOT), "commit", "-m", "Update step feedback [auto]"], check=True, capture_output=True)
-        subprocess.run(["git", "-C", str(ROOT), "push", _git_remote_with_token(), "master"], check=True, capture_output=True)
-        print("[feedback] pushed to GitHub — Railway redeploying")
+        result = subprocess.run(["git", "-C", str(ROOT), "commit", "-m", "Update step feedback [auto]"], capture_output=True)
+        if result.returncode != 0 and b"nothing to commit" not in result.stdout + result.stderr:
+            print(f"[feedback] commit failed: {result.stderr.decode()}")
+            return
+        # Pull remote changes first so our push isn't rejected
+        subprocess.run(["git", "-C", str(ROOT), "pull", "--rebase", remote, "master"], capture_output=True)
+        push = subprocess.run(["git", "-C", str(ROOT), "push", remote, "master"], capture_output=True)
+        if push.returncode == 0:
+            print("[feedback] pushed to GitHub")
+        else:
+            print(f"[feedback] push failed: {push.stderr.decode()}")
     except Exception as exc:
-        print(f"[feedback] git push skipped: {exc}")
+        print(f"[feedback] git push error: {exc}")
 
 
 @app.get("/click/{scenario_id}/{step_id}", response_class=HTMLResponse)
