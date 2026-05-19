@@ -851,19 +851,20 @@
     if (!res.ok) { label.textContent = 'Failed to start'; btn.disabled = false; if (supBtn) supBtn.disabled = false; return; }
     label.textContent = 'Waiting for browser…';
 
-    // Poll until first live_step pause, then open the live view
+    // Poll until first live_step pause, then redirect to live click trainer
     _pollTimer = setInterval(async () => {
       try {
         const data = await (await fetch(`/api/run/${SCENARIO_ID}/status`)).json();
         if (data.status === 'done') { clearInterval(_pollTimer); window.location.reload(); }
         else if (data.status === 'paused' && data.live_step) {
-          label.textContent = `Live — ${data.paused_step || ''}`;
-          _currentPauseState = data;
-          _openLiveStepView(data);
+          clearInterval(_pollTimer);
+          window.location.href = `/click/${SCENARIO_ID}/${data.paused_step}?live=1`;
         }
         else if (data.status === 'paused' && !data.live_step) {
-          // Real failure during live run — show failure bar
+          clearInterval(_pollTimer);
           _showFailureBar(data);
+          btn.disabled = false;
+          if (supBtn) supBtn.disabled = false;
         }
         else if (data.status === 'error') {
           clearInterval(_pollTimer);

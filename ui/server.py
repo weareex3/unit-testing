@@ -915,66 +915,157 @@ def _git_push_feedback():
 
 
 @app.get("/click/{scenario_id}/{step_id}", response_class=HTMLResponse)
-def click_trainer(scenario_id: str, step_id: str):
-    """Full-screen click trainer — shows latest screenshot for a step, click = coordinates."""
+def click_trainer(scenario_id: str, step_id: str, live: bool = False):
+    """Full-screen click trainer. In live=True mode the screenshot streams from
+    the running browser and clicks are sent to it in real time."""
     import re as _re
-    runs = sorted(RUNS_DIR.iterdir(), reverse=True) if RUNS_DIR.exists() else []
-    img_url = None
-    for run in runs:
-        if not run.is_dir():
-            continue
-        for shot in sorted(run.glob(f"{step_id}*.png"), reverse=True):
-            img_url = f"/runs/{run.name}/{shot.name}"
-            break
-        if img_url:
-            break
 
-    if not img_url:
-        return HTMLResponse(f"<h2>No screenshot found for {step_id}</h2>", status_code=404)
+    # Get step action text for the header
+    step_action = ""
+    try:
+        scenarios = _load_scenarios()
+        sc = next((s for s in scenarios if s.scenario_id == scenario_id), None)
+        if sc:
+            st = next((s for s in sc.steps if s.step_id == step_id), None)
+            if st:
+                step_action = st.action
+    except Exception:
+        pass
 
     feedback_data = _load_feedback()
     current_feedback = feedback_data.get(scenario_id, {}).get(step_id, "")
+
+    # Static mode: find latest screenshot from a past run
+    img_url = f"/api/live/{scenario_id}/screenshot" if live else ""
+    if not live:
+        runs = sorted(RUNS_DIR.iterdir(), reverse=True) if RUNS_DIR.exists() else []
+        for run in runs:
+            if not run.is_dir():
+                continue
+            for shot in sorted(run.glob(f"{step_id}*.png"), reverse=True):
+                img_url = f"/runs/{run.name}/{shot.name}"
+                break
+            if img_url:
+                break
+        if not img_url:
+            return HTMLResponse(f"<h2>No screenshot found for {step_id}</h2>", status_code=404)
+
+    live_js = ""
+    if live:
+        live_js = f"""
+  // ── Live mode ──────────────────────────────────────────────────────────────
+  let _refreshTimer = null;
+  function _refreshShot() {{
+    fetch(`/api/live/{scenario_id}/screenshot?t=${{Date.now()}}`)
+      .then(r => {{ if (!r.ok) throw r.status; return r.blob(); }})
+      .then(b => {{ shot.src = URL.createObjectURL(b); }})
+      .catch(() => {{}});
+  }}
+  _refreshShot();
+  _refreshTimer = setInterval(_refreshShot, 2000);
+
+  // In live mode clicks ALSO fire on the real browser
+  const _origClick = wrap.onclick;
+  wrap.addEventListener('click', async (e) => {{
+    const rect = shot.getBoundingClientRect();
+    const x = Math.round((e.clientX - rect.left) * (1280 / rect.width));
+    const y = Math.round((e.clientY - rect.top)  * (720  / rect.height));
+    await fetch(`/api/live/{scenario_id}/click`, {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{x, y}}),
+    }});
+    setTimeout(_refreshShot, 600);
+  }});
+
+  async function saveAndContinue() {{
+    const btn = document.getElementById('continue-btn');
+    btn.disabled = true; btn.textContent = 'Saving…';
+    const text = cmdOut.value.trim();
+    // Save permanently
+    if (text) {{
+      const fd = new FormData();
+      fd.append('scenario_id', '{scenario_id}');
+      fd.append('step_id', '{step_id}');
+      fd.append('feedback', text);
+      await fetch('/api/step-feedback', {{method:'POST', body:fd}});
+    }}
+    // Signal runner to advance
+    await fetch(`/api/live/{scenario_id}/done`, {{
+      method:'POST', headers:{{'Content-Type':'application/json'}},
+      body: JSON.stringify({{commands: text}}),
+    }});
+    btn.textContent = 'Waiting for next step…';
+    // Poll for next paused live step or completion
+    const poll = setInterval(async () => {{
+      try {{
+        const d = await (await fetch(`/api/run/{scenario_id}/status`)).json();
+        if (d.status === 'done') {{
+          clearInterval(poll); clearInterval(_refreshTimer);
+          window.location.href = '/scenario/{scenario_id}';
+        }} else if (d.status === 'paused' && d.live_step) {{
+          clearInterval(poll);
+          window.location.href = `/click/{scenario_id}/${{d.paused_step}}?live=1`;
+        }} else if (d.status === 'paused' && !d.live_step) {{
+          clearInterval(poll); clearInterval(_refreshTimer);
+          window.location.href = '/scenario/{scenario_id}';
+        }} else if (d.status === 'error') {{
+          clearInterval(poll); clearInterval(_refreshTimer);
+          window.location.href = '/scenario/{scenario_id}';
+        }}
+      }} catch(e) {{}}
+    }}, 1500);
+  }}
+"""
+
+    save_btn = (
+        '<button id="continue-btn" onclick="saveAndContinue()" '
+        'style="background:#16a34a;color:#fff;border:none;padding:6px 18px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;">Save &amp; Continue →</button>'
+        if live else
+        '<button id="save-btn" onclick="saveCommands()" '
+        'style="background:#7c3aed;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:monospace;">Save &amp; close</button>'
+    )
+
+    step_label = f'Teach Step {step_id}' if not live else f'Step {step_id}'
+    banner_extra = f' — <span style="color:#9ca3af;font-weight:normal;">{step_action[:100]}</span>' if step_action else ''
 
     return HTMLResponse(f"""<!DOCTYPE html>
 <html>
 <head>
 <meta charset="utf-8">
-<title>Click Trainer — {step_id}</title>
+<title>{'Live — ' if live else ''}{step_id}</title>
 <style>
   * {{ margin:0; padding:0; box-sizing:border-box; }}
   body {{ background:#111; color:#fff; font-family:monospace; display:flex; flex-direction:column; height:100vh; }}
-  #header {{ background:#1a1a1a; border-bottom:1px solid #333; padding:10px 16px; display:flex; align-items:center; gap:12px; flex-shrink:0; }}
-  #header h1 {{ font-size:13px; color:#aaa; }}
-  #coords {{ background:#000; color:#0f0; font-size:14px; font-weight:bold; padding:4px 10px; border-radius:4px; min-width:130px; text-align:center; }}
-  #copy-btn {{ background:#2563eb; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12px; font-family:monospace; }}
-  #copy-btn:hover {{ background:#1d4ed8; }}
-  #add-btn {{ background:#16a34a; color:#fff; border:none; padding:5px 12px; border-radius:4px; cursor:pointer; font-size:12px; font-family:monospace; }}
-  #add-btn:hover {{ background:#15803d; }}
+  #header {{ background:#1a1a1a; border-bottom:1px solid #333; padding:8px 16px; display:flex; align-items:center; gap:12px; flex-shrink:0; flex-wrap:wrap; }}
+  #header h1 {{ font-size:13px; color:#fff; font-weight:bold; }}
+  #coords {{ background:#000; color:#0f0; font-size:13px; font-weight:bold; padding:3px 8px; border-radius:4px; min-width:120px; text-align:center; }}
   #img-wrap {{ flex:1; overflow:auto; display:flex; align-items:flex-start; justify-content:center; padding:8px; position:relative; cursor:crosshair; }}
   #shot {{ max-width:100%; display:block; user-select:none; }}
-  .dot {{ position:absolute; width:20px; height:20px; background:#ef4444; border:2px solid #fff; border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; box-shadow:0 0 0 2px #ef4444; }}
+  .dot {{ position:absolute; width:18px; height:18px; background:#ef4444; border:2px solid #fff; border-radius:50%; transform:translate(-50%,-50%); pointer-events:none; }}
   .dot-label {{ position:absolute; background:#ef4444; color:#fff; font-size:10px; padding:1px 4px; border-radius:3px; transform:translate(8px,-50%); pointer-events:none; white-space:nowrap; }}
-  #cmd-panel {{ background:#1a1a1a; border-top:1px solid #333; padding:10px 16px; flex-shrink:0; display:flex; align-items:center; gap:8px; }}
-  #cmd-out {{ flex:1; background:#000; color:#0f0; font-size:12px; padding:6px 10px; border-radius:4px; border:1px solid #333; min-height:32px; word-break:break-all; }}
-  #save-btn {{ background:#7c3aed; color:#fff; border:none; padding:6px 14px; border-radius:4px; cursor:pointer; font-size:12px; font-family:monospace; }}
-  #save-btn:hover {{ background:#6d28d9; }}
+  #cmd-panel {{ background:#1a1a1a; border-top:1px solid #333; padding:8px 16px; flex-shrink:0; display:flex; align-items:flex-start; gap:8px; }}
+  #cmd-out {{ flex:1; background:#000; color:#0f0; font-size:12px; padding:6px 10px; border-radius:4px; border:1px solid #333; min-height:40px; resize:vertical; font-family:monospace; }}
   #status {{ font-size:11px; color:#aaa; }}
+  {'#live-badge{background:#16a34a;color:#fff;font-size:10px;padding:2px 7px;border-radius:10px;font-weight:bold;letter-spacing:.05em;}' if live else ''}
 </style>
 </head>
 <body>
 <div id="header">
-  <h1>{step_id}</h1>
+  {'<span id="live-badge">● LIVE</span>' if live else ''}
+  <h1>{step_label}{banner_extra}</h1>
   <div id="coords">click image</div>
-  <button id="copy-btn" onclick="copyCoords()">Copy CLICK_XY</button>
-  <button id="add-btn" onclick="addToCommands()">Add to commands</button>
-  <span id="status"></span>
+  <button onclick="clearDots()" style="background:#374151;color:#fff;border:none;padding:3px 10px;border-radius:4px;cursor:pointer;font-size:11px;">Clear dots</button>
+  <span id="status" style="font-size:11px;color:#aaa;"></span>
+  {'<div style="flex:1"></div>' if live else ''}
+  {save_btn}
+  {'<button onclick="window.location.href=\'/scenario/' + scenario_id + '\'" style="background:#374151;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;">← Back</button>' if live else ''}
 </div>
 <div id="img-wrap">
   <img id="shot" src="{img_url}" draggable="false" />
 </div>
 <div id="cmd-panel">
-  <div id="cmd-out">{current_feedback or "(commands will appear here)"}</div>
-  <button id="save-btn" onclick="saveCommands()">Save &amp; close</button>
+  <textarea id="cmd-out" rows="3" spellcheck="false">{current_feedback or ""}</textarea>
+  {save_btn if not live else ""}
 </div>
 
 <script>
@@ -987,41 +1078,31 @@ def click_trainer(scenario_id: str, step_id: str):
   const cmdOut = document.getElementById('cmd-out');
 
   wrap.addEventListener('click', (e) => {{
+    if (e.target !== shot) return;
     const rect = shot.getBoundingClientRect();
     const x = Math.round((e.clientX - rect.left) * (1280 / rect.width));
     const y = Math.round((e.clientY - rect.top)  * (720  / rect.height));
     lastX = x; lastY = y;
     coords.textContent = x + ', ' + y;
-
-    // dot
-    const dot = document.createElement('div');
-    dot.className = 'dot';
+    const dot = document.createElement('div'); dot.className = 'dot';
     dot.style.left = (e.clientX - wrap.getBoundingClientRect().left) + 'px';
     dot.style.top  = (e.clientY - wrap.getBoundingClientRect().top)  + 'px';
-    const lbl = document.createElement('div');
-    lbl.className = 'dot-label';
-    lbl.style.left = dot.style.left;
-    lbl.style.top  = dot.style.top;
+    const lbl = document.createElement('div'); lbl.className = 'dot-label';
+    lbl.style.left = dot.style.left; lbl.style.top = dot.style.top;
     lbl.textContent = x + ',' + y;
-    wrap.appendChild(dot);
-    wrap.appendChild(lbl);
+    wrap.appendChild(dot); wrap.appendChild(lbl);
+    // Append click to commands textarea
+    const cur = cmdOut.value.trim();
+    cmdOut.value = cur ? cur + '\\nCLICK_XY: ' + x + ', ' + y : 'CLICK_XY: ' + x + ', ' + y;
   }});
 
-  function copyCoords() {{
-    navigator.clipboard.writeText('CLICK_XY: ' + lastX + ', ' + lastY);
-    document.getElementById('status').textContent = 'copied!';
-    setTimeout(() => document.getElementById('status').textContent = '', 1500);
-  }}
-
-  function addToCommands() {{
-    const cur = cmdOut.textContent.trim();
-    const line = 'CLICK_XY: ' + lastX + ', ' + lastY;
-    cmdOut.textContent = (cur && cur !== '(commands will appear here)') ? cur + '\\n' + line : line;
+  function clearDots() {{
+    wrap.querySelectorAll('.dot,.dot-label').forEach(el => el.remove());
   }}
 
   async function saveCommands() {{
-    const text = cmdOut.textContent.trim();
-    if (!text || text === '(commands will appear here)') return;
+    const text = cmdOut.value.trim();
+    if (!text) return;
     const fd = new FormData();
     fd.append('scenario_id', SCENARIO_ID);
     fd.append('step_id', STEP_ID);
@@ -1032,6 +1113,8 @@ def click_trainer(scenario_id: str, step_id: str):
       setTimeout(() => window.close(), 800);
     }}
   }}
+
+  {live_js}
 </script>
 </body>
 </html>""")
