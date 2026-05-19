@@ -994,39 +994,70 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
       method:'POST', headers:{{'Content-Type':'application/json'}},
       body: JSON.stringify({{commands: text}}),
     }});
-    btn.textContent = 'Waiting for next step…';
+    btn.textContent = 'Waiting…';
     // Poll for next paused live step or completion
     const poll = setInterval(async () => {{
       try {{
         const d = await (await fetch(`/api/run/{scenario_id}/status`)).json();
-        if (d.status === 'done') {{
-          clearInterval(poll); clearInterval(_refreshTimer);
-          window.location.href = '/scenario/{scenario_id}';
-        }} else if (d.status === 'paused' && d.live_step) {{
+        if (d.status === 'paused' && d.live_step) {{
           clearInterval(poll);
-          window.location.href = `/click/{scenario_id}/${{d.paused_step}}?live=1`;
+          if (d.paused_step === '__done__') {{
+            // All scripted steps done — stay open, let user keep clicking
+            _showFinishState();
+          }} else {{
+            window.location.href = `/click/{scenario_id}/${{d.paused_step}}?live=1`;
+          }}
         }} else if (d.status === 'paused' && !d.live_step) {{
           clearInterval(poll); clearInterval(_refreshTimer);
           window.location.href = '/scenario/{scenario_id}';
-        }} else if (d.status === 'error') {{
+        }} else if (d.status === 'done' || d.status === 'error') {{
+          // Should only happen if runner finishes without the __done__ hold
           clearInterval(poll); clearInterval(_refreshTimer);
           window.location.href = '/scenario/{scenario_id}';
         }}
       }} catch(e) {{}}
     }}, 1500);
   }}
+
+  function _showFinishState() {{
+    const h1 = document.querySelector('#header h1');
+    if (h1) h1.innerHTML = 'All steps complete ✔ &nbsp;<span style="color:#9ca3af;font-weight:normal;font-size:11px;">Keep clicking if needed, then click Finish</span>';
+    const btn = document.getElementById('continue-btn');
+    if (btn) {{
+      btn.textContent = 'Finish →';
+      btn.style.background = '#7c3aed';
+      btn.disabled = false;
+      btn.onclick = async () => {{
+        btn.disabled = true; btn.textContent = 'Closing…';
+        await fetch(`/api/live/{scenario_id}/done`, {{
+          method:'POST', headers:{{'Content-Type':'application/json'}},
+          body: JSON.stringify({{commands: ''}}),
+        }});
+        window.location.href = '/scenario/{scenario_id}';
+      }};
+    }}
+  }}
 """
 
-    save_btn = (
-        '<button id="continue-btn" onclick="saveAndContinue()" '
-        'style="background:#16a34a;color:#fff;border:none;padding:6px 18px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;">Save &amp; Continue →</button>'
-        if live else
-        '<button id="save-btn" onclick="saveCommands()" '
-        'style="background:#7c3aed;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:monospace;">Save &amp; close</button>'
-    )
+    if not live:
+        save_btn = ('<button id="save-btn" onclick="saveCommands()" '
+                    'style="background:#7c3aed;color:#fff;border:none;padding:6px 14px;border-radius:4px;cursor:pointer;font-size:12px;font-family:monospace;">Save &amp; close</button>')
+    elif is_done_step:
+        save_btn = ('<button id="continue-btn" onclick="saveAndContinue()" '
+                    'style="background:#7c3aed;color:#fff;border:none;padding:6px 18px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;">Finish →</button>')
+    else:
+        save_btn = ('<button id="continue-btn" onclick="saveAndContinue()" '
+                    'style="background:#16a34a;color:#fff;border:none;padding:6px 18px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;">Save &amp; Continue →</button>')
 
-    step_label = f'Teach Step {step_id}' if not live else f'Step {step_id}'
-    banner_extra = f' — <span style="color:#9ca3af;font-weight:normal;">{step_action[:100]}</span>' if step_action else ''
+    is_done_step = step_id == "__done__"
+    step_label = ('All steps complete ✔' if is_done_step
+                  else f'Teach Step {step_id}' if not live
+                  else f'Step {step_id}')
+    banner_extra = (
+        ' <span style="color:#9ca3af;font-weight:normal;font-size:11px;">Keep clicking if needed, then Finish</span>'
+        if is_done_step else
+        f' — <span style="color:#9ca3af;font-weight:normal;">{step_action[:100]}</span>' if step_action else ''
+    )
 
     return HTMLResponse(f"""<!DOCTYPE html>
 <html>

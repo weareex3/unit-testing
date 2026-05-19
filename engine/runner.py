@@ -344,6 +344,22 @@ def run_scenario(
                 and all(s.passed for s in result.steps)
             )
 
+            # In live mode, hold the browser open after all steps complete.
+            # The user decides when they're truly done — they may want to keep
+            # clicking, check something extra, or the scenario may have more
+            # than the workbook describes.
+            if live_mode and pause_callback:
+                print("  [live] all steps done — holding browser until user clicks Finish")
+                pause_callback(
+                    scenario_id=scenario.scenario_id,
+                    step_id="__done__",
+                    screenshot_path=_live_seed_shot,
+                    run_id=run_id,
+                    error_message="All steps complete",
+                    page=page,
+                    live_step=True,
+                )
+
         except Exception as exc:
             result.passed = False
             print(f"  [runner error] {exc}")
