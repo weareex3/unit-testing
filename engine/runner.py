@@ -142,7 +142,8 @@ def run_scenario(
             feedback_data = _load_feedback(scenario.scenario_id)
             expected_overrides = _load_expected_overrides(scenario.scenario_id)
             _scenario_ctx = ""
-            _live_seed_shot = ""  # last real screenshot from an automated step
+            _live_seed_shot = ""   # last real screenshot from an automated step
+            _live_manual_started = False  # once user takes first manual step, all rest are manual too
 
             for i, step in enumerate(steps, 1):
                 print(f"\n  [step {i}/{len(steps)}] {step.step_id}")
@@ -177,12 +178,14 @@ def run_scenario(
                         )
                     _scenario_ctx = "\n".join(_ctx_lines)
 
-                # Live mode: run steps that have commands automatically (they always
-                # produce a real screenshot after interaction); only pause for steps
-                # without commands so the user drives them manually.
-                # This means the live overlay is always seeded with a real screenshot
-                # from the last automated step — never a blank-page capture.
-                if live_mode and pause_callback and not _has_direct_commands(step_feedback):
+                # Live mode: run steps with commands automatically until the first
+                # manual step. After that, ALL remaining steps go through live
+                # control — the user drives them so nothing gets skipped.
+                _go_live = live_mode and pause_callback and (
+                    _live_manual_started or not _has_direct_commands(step_feedback)
+                )
+                if _go_live:
+                    _live_manual_started = True
                     fix = pause_callback(
                         scenario_id=scenario.scenario_id,
                         step_id=step.step_id,
@@ -215,6 +218,7 @@ def run_scenario(
                     # the error bar
                     if live_mode and pause_callback and not step_result.passed:
                         print(f"  [live-fallback] {step.step_id} failed in live mode — handing to user")
+                        _live_manual_started = True
                         fix = pause_callback(
                             scenario_id=scenario.scenario_id,
                             step_id=step.step_id,
