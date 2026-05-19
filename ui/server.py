@@ -950,6 +950,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
         if not img_url:
             return HTMLResponse(f"<h2>No screenshot found for {step_id}</h2>", status_code=404)
 
+    is_done_step = step_id == "__done__"
     live_js = ""
     if live:
         live_js = f"""
@@ -1049,7 +1050,6 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
         save_btn = ('<button id="continue-btn" onclick="saveAndContinue()" '
                     'style="background:#16a34a;color:#fff;border:none;padding:6px 18px;border-radius:4px;cursor:pointer;font-size:13px;font-weight:bold;">Save &amp; Continue →</button>')
 
-    is_done_step = step_id == "__done__"
     step_label = ('All steps complete ✔' if is_done_step
                   else f'Teach Step {step_id}' if not live
                   else f'Step {step_id}')
