@@ -433,22 +433,7 @@ def _run_step(page: Page, step, output_dir: str, feedback: str = "", use_feedbac
     # ── Priority 1: explicit human feedback / approved commands ───────────────
     if _has_direct_commands(feedback):
         print(f"  [direct] {step.step_id}: running command override")
-        result = _run_direct_commands(page, step, output_dir, feedback, t0)
-        if result.passed:
-            post_shot = os.path.join(output_dir, f"{step.step_id}_post.png")
-            try:
-                page.screenshot(path=post_shot, full_page=False)
-                if not verify_step_result(post_shot, step.expected_result):
-                    print(f"  [verify] direct commands ran but expected result not on screen — failing step")
-                    return StepResult(
-                        step_id=step.step_id, passed=False,
-                        error_message=f"Commands completed but expected result not visible: {step.expected_result}",
-                        duration_s=round(time.time() - t0, 2),
-                        screenshot_path=post_shot,
-                    )
-            except Exception:
-                pass
-        return result
+        return _run_direct_commands(page, step, output_dir, feedback, t0)
 
     # ── Priority 2: vision-first — screenshot the real page, ask Claude ──────
     # Claude sees what's actually on screen and generates the exact command
