@@ -933,7 +933,9 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
         pass
 
     feedback_data = _load_feedback()
-    current_feedback = feedback_data.get(scenario_id, {}).get(step_id, "")
+    # In live mode start with a blank slate — old commands may be broken (that's
+    # why we're here). Only pre-fill in static/teach mode.
+    current_feedback = "" if live else feedback_data.get(scenario_id, {}).get(step_id, "")
 
     # Static mode: find latest screenshot from a past run
     img_url = f"/api/live/{scenario_id}/screenshot" if live else ""
