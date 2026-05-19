@@ -1,11 +1,12 @@
 {
   "Proxy Login": {
-    "description": "Switching into another users SuccessFactors session using the proxy feature to perform actions on their behalf",
+    "description": "Switching into another users SuccessFactors session using the proxy feature — accessing the system as another employee or user via proxy management",
+    "keywords": ["proxy", "switch user", "access as another", "proxy management", "proxy session"],
     "steps": {
-      "LOGIN-102-01": "NAVIGATE: https://hcm.successfactors.com\nWAIT: 2000",
-      "LOGIN-102-02": "CLICK_XY: 1200, 45\nWAIT: 1000",
-      "LOGIN-102-03": "CLICK: Switch User\nWAIT: 1500",
-      "LOGIN-102-04": "TYPE: testuser@company.com\nCLICK: Search\nWAIT: 2000"
+      "LOGIN-102-01": "GOTO: https://hcm-eu10-preview.hr.cloud.sap/sf/start\nWAIT: 4000\nCLICK_XY: 1224, 25\nWAIT: 2000",
+      "LOGIN-102-02": "CLICK: Proxy Now\nWAIT: 3000",
+      "LOGIN-102-03": "TYPE: {{target_employee_name}}\nWAIT: 3000\nPRESS: ArrowDown\nWAIT: 500\nPRESS: Enter\nWAIT: 2000\nCLICK: OK\nWAIT: 5000",
+      "LOGIN-102-04": "WAIT: 3000"
     }
   }
 }

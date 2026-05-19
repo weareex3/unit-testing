@@ -1537,13 +1537,23 @@ def library_match(scenario_id: str):
     scenario = next((s for s in scenarios if s.scenario_id == scenario_id), None)
     if not scenario:
         return JSONResponse({"match": None})
+
+    all_text = " ".join(s.action.lower() for s in scenario.steps)
+
+    # Keyword match first — fast and reliable for demo
+    for task_name, entry in library.items():
+        if not isinstance(entry, dict) or not entry.get("steps"):
+            continue
+        keywords = entry.get("keywords", [])
+        if any(kw.lower() in all_text for kw in keywords):
+            return JSONResponse({"match": task_name, "description": entry.get("description", "")})
+
+    # Claude fallback for tasks without keywords
     task_lines = "\n".join(
         f"- {name}: {entry.get('description', name)}"
         for name, entry in library.items()
         if isinstance(entry, dict) and entry.get("steps")
     )
-    if not task_lines:
-        return JSONResponse({"match": None})
     summary = "\n".join(f"  {i+1}. {s.action}" for i, s in enumerate(scenario.steps[:8]))
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     if not api_key:
