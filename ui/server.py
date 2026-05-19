@@ -219,10 +219,11 @@ def _git_remote_with_token() -> str:
         return "origin"
     try:
         import subprocess
-        url = subprocess.check_output(
+        result = subprocess.run(
             ["git", "-C", str(ROOT), "remote", "get-url", "origin"],
             capture_output=True, text=True
-        ).stdout.strip()
+        )
+        url = result.stdout.strip()
         # inject token: https://github.com/... → https://token@github.com/...
         if url.startswith("https://") and "@" not in url:
             url = url.replace("https://", f"https://{token}@")
