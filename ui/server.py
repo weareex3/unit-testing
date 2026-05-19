@@ -1029,11 +1029,13 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
       btn.style.background = '#7c3aed';
       btn.disabled = false;
       btn.onclick = async () => {{
-        btn.disabled = true; btn.textContent = 'Closing…';
+        btn.disabled = true; btn.textContent = 'Saving…';
         await fetch(`/api/live/{scenario_id}/done`, {{
           method:'POST', headers:{{'Content-Type':'application/json'}},
           body: JSON.stringify({{commands: ''}}),
         }});
+        // Lock all recorded commands as the permanent approved playbook
+        await fetch(`/api/scenario/{scenario_id}/approve`, {{method:'POST'}});
         window.location.href = '/scenario/{scenario_id}';
       }};
     }}

@@ -140,6 +140,7 @@ def run_scenario(
             print("  [login] logged in successfully")
 
             feedback_data = _load_feedback(scenario.scenario_id)
+            approved_cmds = _load_approved_commands(scenario.scenario_id)  # locked playbook beats feedback
             expected_overrides = _load_expected_overrides(scenario.scenario_id)
             _scenario_ctx = ""
             _live_seed_shot = ""   # last real screenshot from an automated step
@@ -149,8 +150,8 @@ def run_scenario(
                 print(f"\n  [step {i}/{len(steps)}] {step.step_id}")
                 print(f"           {step.action[:120]}")
 
-                # Check for learned patterns if no explicit feedback exists
-                step_feedback = feedback_data.get(step.step_id, "")
+                # Approved playbook beats everything; fall back to regular feedback
+                step_feedback = approved_cmds.get(step.step_id) or feedback_data.get(step.step_id, "")
                 if not step_feedback:
                     matched = _match_pattern(step.action)
                     if matched:
