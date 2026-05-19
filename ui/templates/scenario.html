@@ -2,200 +2,198 @@
 {% block title %}{{ scenario.scenario_id }} — EX3 TestOps{% endblock %}
 
 {% block content %}
-<header class="bg-white border-b border-slate-200 px-8 py-4 flex items-center justify-between">
-  <nav class="text-xs text-slate-400 flex items-center gap-1.5">
-    <a href="/" class="hover:text-slate-600">Test Hub</a>
-    <span class="text-slate-300">/</span>
-    <a href="/" class="hover:text-slate-600">Test Scripts</a>
-    <span class="text-slate-300">/</span>
-    <span class="text-slate-700 font-medium font-mono">{{ scenario.scenario_id }}</span>
+<style>
+  .hdr-btn { display:inline-flex;align-items:center;gap:6px;padding:6px 14px;border-radius:8px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit;transition:all 0.15s;border:none; }
+  .hdr-btn:disabled { opacity:0.45;cursor:not-allowed; }
+  .status-btn { padding:5px 14px;border-radius:7px;font-size:12px;font-weight:500;cursor:pointer;font-family:inherit;transition:all 0.15s;border:1px solid transparent; }
+  .step-card { background:#fff;border:1px solid rgba(60,60,67,0.12);border-radius:12px;padding:18px 20px;transition:all 0.15s; }
+  .step-card.pass { border-color:rgba(52,199,89,0.25);background:rgba(52,199,89,0.03); }
+  .step-card.fail { border-color:rgba(255,59,48,0.25);background:rgba(255,59,48,0.03); }
+  .step-card.blocked { border-color:rgba(255,149,0,0.25);background:rgba(255,149,0,0.03); }
+  .badge-id { font-size:10px;font-weight:600;font-family:monospace;padding:2px 8px;border-radius:5px;border:1px solid rgba(60,60,67,0.12);background:#f2f2f7;color:#6e6e73; }
+  .panel { background:#fff;border:1px solid rgba(60,60,67,0.1);border-radius:12px;padding:18px; }
+  .section-label { font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#aeaeb2;margin:0 0 10px; }
+</style>
+
+<!-- Header -->
+<div style="background:#fff;border-bottom:1px solid rgba(60,60,67,0.1);padding:13px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100;">
+  <nav style="display:flex;align-items:center;gap:6px;font-size:12px;color:#aeaeb2;">
+    <a href="/" style="color:#aeaeb2;text-decoration:none;" onmouseover="this.style.color='#6e6e73'" onmouseout="this.style.color='#aeaeb2'">Test Hub</a>
+    <span style="color:rgba(60,60,67,0.2);">/</span>
+    <a href="/" style="color:#aeaeb2;text-decoration:none;" onmouseover="this.style.color='#6e6e73'" onmouseout="this.style.color='#aeaeb2'">Test Scripts</a>
+    <span style="color:rgba(60,60,67,0.2);">/</span>
+    <span style="color:#1c1c1e;font-weight:500;font-family:monospace;font-size:11px;">{{ scenario.scenario_id }}</span>
   </nav>
-  <div class="flex items-center gap-3">
-    <button id="cancel-btn" onclick="cancelRun()" class="hidden text-xs text-slate-400 hover:text-rose-500 underline transition">Reset</button>
-    <button id="control-btn" onclick="takeControlAnytime()"
-            class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-slate-700 hover:bg-slate-600 rounded border border-slate-600 transition">
+
+  <div style="display:flex;align-items:center;gap:8px;">
+    <button id="cancel-btn" onclick="cancelRun()" class="hidden hdr-btn" style="color:#ff3b30;background:transparent;font-size:12px;text-decoration:underline;padding:4px 6px;">Reset</button>
+
+    <button id="control-btn" onclick="takeControlAnytime()" class="hdr-btn" style="background:#f2f2f7;color:#1c1c1e;border:1px solid rgba(60,60,67,0.15);">
+      <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polygon points="10,8 16,12 10,16" fill="currentColor" stroke="none"/></svg>
       <span id="control-label">Take Control</span>
     </button>
-    <div class="flex items-center border border-slate-900 rounded overflow-hidden">
-      <button id="run-btn" onclick="startRun(false)"
-              class="inline-flex items-center gap-2 px-3 py-1.5 text-xs font-medium text-white bg-slate-900 hover:bg-slate-800 transition disabled:opacity-50 disabled:cursor-not-allowed">
-        <svg id="run-icon" class="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+
+    <div style="display:flex;border:1px solid rgba(60,60,67,0.15);border-radius:9px;overflow:hidden;">
+      <button id="run-btn" onclick="startRun(false)" class="hdr-btn" style="background:#0071e3;color:#fff;border-radius:0;border:none;gap:7px;padding:7px 16px;">
+        <svg id="run-icon" width="13" height="13" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
         <span id="run-label">Run scenario</span>
       </button>
-      <button id="supervised-btn" onclick="startLive()" title="You drive each step — full live browser view"
-              class="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-slate-300 bg-slate-800 hover:bg-slate-700 border-l border-slate-700 transition disabled:opacity-50 disabled:cursor-not-allowed">
+      <button id="supervised-btn" onclick="startLive()" class="hdr-btn" style="background:#005bbf;color:rgba(255,255,255,0.85);border-radius:0;border:none;border-left:1px solid rgba(255,255,255,0.15);padding:7px 14px;font-size:12px;">
         Step-by-step
       </button>
     </div>
   </div>
-</header>
+</div>
 
-<div class="flex-1 overflow-y-auto px-8 py-8">
-  <div class="max-w-6xl mx-auto">
+<div style="flex:1;overflow-y:auto;padding:24px 28px;">
+  <div style="max-width:900px;margin:0 auto;">
 
-    <div class="flex items-center gap-3 mb-2">
-      <span class="px-2 py-0.5 text-[11px] font-mono font-medium bg-slate-100 text-slate-600 border border-slate-200 rounded">{{ scenario.scenario_id }}</span>
-      <span class="px-2 py-0.5 text-[11px] font-medium bg-{{ role_color }}-50 text-{{ role_color }}-700 border border-{{ role_color }}-200 rounded">{{ scenario.role }}</span>
+    <!-- Title block -->
+    <div style="margin-bottom:24px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+        <span class="badge-id">{{ scenario.scenario_id }}</span>
+        <span style="font-size:11px;font-weight:500;padding:2px 8px;border-radius:5px;
+          {% if role_color == 'violet' %}background:#f5f0ff;color:#6d28d9;border:1px solid #ddd6fe;
+          {% elif role_color == 'blue' %}background:#eff6ff;color:#1d4ed8;border:1px solid #bfdbfe;
+          {% elif role_color == 'emerald' %}background:#f0fdf4;color:#15803d;border:1px solid #bbf7d0;
+          {% else %}background:#f2f2f7;color:#6e6e73;border:1px solid rgba(60,60,67,0.12);{% endif %}">
+          {{ scenario.role }}
+        </span>
+      </div>
+      <h1 style="font-size:20px;font-weight:700;letter-spacing:-0.02em;color:#1c1c1e;margin:0 0 4px;">{{ scenario.name }}</h1>
+      <p style="font-size:13px;color:#6e6e73;margin:0;">{{ scenario.steps|length }} steps &middot; Module {{ scenario.module }}</p>
     </div>
-    <h1 class="text-lg font-semibold text-slate-900 mt-1">{{ scenario.name }}</h1>
-    <p class="text-slate-500 mt-1 text-xs">{{ scenario.steps|length }} steps &middot; Module {{ scenario.module }}</p>
 
-    <div id="run-error" class="hidden mt-4 p-3 bg-red-50 border border-red-200 rounded text-xs font-mono text-red-700"></div>
+    <div id="run-error" class="hidden" style="margin-bottom:16px;padding:12px 16px;background:#fff0ef;border:1px solid rgba(255,59,48,0.2);border-radius:10px;font-size:12px;font-family:monospace;color:#ff3b30;"></div>
 
-    <!-- ── Live run progress ── -->
-    <div id="live-panel" style="display:none" class="mt-6 bg-white border border-slate-200 rounded p-4">
-      <h3 class="text-sm font-semibold text-slate-700 mb-3 flex items-center gap-2">
-        <span id="live-spinner" style="width:8px;height:8px;border-radius:50%;background:#3b82f6;display:inline-block;animation:lp-pulse 1s infinite;"></span>
-        <span id="live-title">Running…</span>
-      </h3>
-      <div id="live-steps"></div>
+    <!-- Live run progress -->
+    <div id="live-panel" style="display:none;margin-bottom:20px;" class="panel">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <span id="live-spinner" style="width:8px;height:8px;border-radius:50%;background:#0071e3;display:inline-block;animation:lp-pulse 1s infinite;flex-shrink:0;"></span>
+        <span id="live-title" style="font-size:13px;font-weight:600;color:#1c1c1e;">Running…</span>
+      </div>
+      <div id="live-steps" style="display:flex;flex-direction:column;gap:2px;"></div>
     </div>
-    <style>@keyframes lp-pulse{0%,100%{opacity:1}50%{opacity:.3}}</style>
-
-    <!-- failure panel placeholder (actual panel is fixed-bottom, injected by JS) -->
+    <style>@keyframes lp-pulse{0%,100%{opacity:1}50%{opacity:.25}}</style>
 
     {% if run %}
-    <!-- ── Video + Feedback panel ── -->
-    <div class="mt-8 grid grid-cols-1 lg:grid-cols-5 gap-6">
+    <!-- Video + Feedback -->
+    <div style="display:grid;grid-template-columns:1fr 340px;gap:16px;margin-bottom:24px;">
 
-      <!-- Video -->
-      <div class="lg:col-span-3 bg-white border border-slate-200 rounded p-4">
-        <div class="flex items-center justify-between mb-3">
-          <h3 class="text-sm font-semibold text-slate-700">Latest run</h3>
-          <div class="flex items-center gap-2">
+      <!-- Video card -->
+      <div class="panel">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+          <p class="section-label" style="margin:0;">Latest Run</p>
+          <div style="display:flex;align-items:center;gap:8px;">
             {% if approved %}
-            <span class="px-2 py-0.5 text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded">Locked</span>
+            <span style="font-size:11px;font-weight:600;color:#34c759;background:rgba(52,199,89,0.1);border:1px solid rgba(52,199,89,0.25);border-radius:5px;padding:2px 9px;">Locked</span>
             {% endif %}
-            <span class="text-xs text-slate-500 font-mono">{{ run.id }}</span>
+            <span style="font-size:11px;color:#aeaeb2;font-family:monospace;">{{ run.id }}</span>
           </div>
         </div>
         {% if run.video_url %}
-        <video controls class="w-full rounded-lg bg-slate-900" src="{{ run.video_url }}"></video>
+        <video controls style="width:100%;border-radius:8px;background:#1c1c1e;" src="{{ run.video_url }}"></video>
         {% else %}
-        <p class="text-sm text-slate-500 italic">No video recorded for this run.</p>
+        <div style="padding:24px;text-align:center;background:#f2f2f7;border-radius:8px;">
+          <p style="font-size:13px;color:#aeaeb2;margin:0;">No video recorded for this run</p>
+        </div>
         {% endif %}
         {% if run.trace_url %}
-        <p class="text-xs text-slate-500 mt-3">
-          Frame-by-frame replay: <a href="{{ run.trace_url }}" download class="text-violet-600 underline">download trace.zip</a>
-          → drop into <a href="https://trace.playwright.dev" target="_blank" class="text-violet-600 underline">trace.playwright.dev</a>
-          for DOM snapshots, network calls and console logs at every action.
+        <p style="font-size:11px;color:#aeaeb2;margin-top:10px;">
+          Frame-by-frame: <a href="{{ run.trace_url }}" download style="color:#0071e3;">download trace.zip</a>
+          → <a href="https://trace.playwright.dev" target="_blank" style="color:#0071e3;">trace.playwright.dev</a>
         </p>
         {% endif %}
-
-        <!-- ── Approve / reject ── -->
-        <div class="mt-4 flex gap-2">
+        <div style="margin-top:14px;display:flex;gap:8px;">
           {% if approved %}
-          <span class="flex-1 text-center text-xs text-emerald-700 font-medium py-2 bg-emerald-50 rounded border border-emerald-200">
+          <div style="flex:1;text-align:center;font-size:12px;color:#34c759;font-weight:600;padding:9px;background:rgba(52,199,89,0.08);border-radius:8px;border:1px solid rgba(52,199,89,0.2);">
             Locked — runner uses this approach every time
-          </span>
-          <button onclick="unapproveRun()"
-                  class="px-4 py-2 text-xs font-semibold text-red-600 border border-red-200 hover:bg-red-50 rounded transition">
-            Mark as Wrong
-          </button>
+          </div>
+          <button onclick="unapproveRun()" class="hdr-btn" style="background:#fff0ef;color:#ff3b30;border:1px solid rgba(255,59,48,0.2);font-size:12px;padding:7px 14px;">Mark Wrong</button>
           {% else %}
-          <button onclick="approveRun()"
-                  class="flex-1 py-2 text-xs font-semibold text-white bg-emerald-700 hover:bg-emerald-800 rounded transition">
-            Mark as Correct
-          </button>
-          <button onclick="unapproveRun()"
-                  class="px-4 py-2 text-xs font-semibold text-slate-500 border border-slate-200 hover:bg-slate-50 rounded transition">
-            Incorrect
-          </button>
+          <button onclick="approveRun()" class="hdr-btn" style="flex:1;justify-content:center;background:#34c759;color:#fff;font-size:12px;">Mark as Correct</button>
+          <button onclick="unapproveRun()" class="hdr-btn" style="background:#f2f2f7;color:#6e6e73;border:1px solid rgba(60,60,67,0.12);font-size:12px;">Incorrect</button>
           {% endif %}
         </div>
       </div>
 
-      <!-- Feedback panel -->
-      <div class="lg:col-span-2 bg-white border border-slate-200 rounded p-4 flex flex-col">
-        <h3 class="text-sm font-semibold text-slate-700 mb-1">Run Feedback</h3>
-        <p class="text-xs text-slate-400 mb-4">Click a step to give feedback — the runner will use it on the next attempt.</p>
+      <!-- Feedback card -->
+      <div class="panel" style="display:flex;flex-direction:column;">
+        <p class="section-label">Run Feedback</p>
+        <p style="font-size:12px;color:#aeaeb2;margin:0 0 12px;">Click a step to give feedback — used on next run.</p>
 
-        <div class="space-y-1 flex-1 overflow-y-auto scroll-thin">
+        <div style="flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:2px;">
           {% for shot in run.screenshots %}
           {% set existing = step_feedback.get(shot.step_id, '') %}
           <button onclick="selectStep('{{ shot.step_id }}', {{ 'true' if shot.passed else 'false' }})"
                   id="step-btn-{{ shot.step_id }}"
-                  class="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-left transition hover:bg-slate-50 border border-transparent">
+                  style="display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;border:1px solid transparent;background:transparent;cursor:pointer;text-align:left;font-family:inherit;transition:all 0.12s;"
+                  onmouseover="this.style.background='#f2f2f7'" onmouseout="this.style.background='transparent'">
             {% if shot.passed %}
-            <span class="w-5 h-5 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-xs flex-shrink-0">✓</span>
+            <span style="width:18px;height:18px;border-radius:50%;background:rgba(52,199,89,0.12);color:#34c759;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">✓</span>
             {% else %}
-            <span class="w-5 h-5 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-xs flex-shrink-0">✗</span>
+            <span style="width:18px;height:18px;border-radius:50%;background:rgba(255,59,48,0.1);color:#ff3b30;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">✗</span>
             {% endif %}
-            <span class="text-xs font-mono text-slate-700 flex-1">{{ shot.step_id }}</span>
-            {% if existing %}
-            <span class="text-[10px] text-slate-400 font-medium">note</span>
-            {% endif %}
+            <span style="font-size:11px;font-family:monospace;color:#3c3c43;flex:1;">{{ shot.step_id }}</span>
+            {% if existing %}<span style="font-size:10px;color:#aeaeb2;font-weight:500;">note</span>{% endif %}
           </button>
           {% endfor %}
         </div>
 
-        <!-- Feedback input — shown when a step is selected -->
-        <div id="feedback-box" class="hidden mt-4 border-t border-slate-100 pt-4">
-          <p class="text-xs font-medium text-slate-600 mb-2">Feedback for <span id="feedback-step-label" class="font-mono text-slate-900 font-semibold"></span></p>
+        <div id="feedback-box" class="hidden" style="margin-top:14px;border-top:1px solid rgba(60,60,67,0.08);padding-top:14px;">
+          <p style="font-size:12px;font-weight:600;color:#1c1c1e;margin:0 0 10px;">Feedback for <span id="feedback-step-label" style="font-family:monospace;color:#0071e3;"></span></p>
 
-          <!-- Click-to-train screenshot -->
-          <div id="train-area" class="hidden mb-3">
-            <p class="text-[10px] text-slate-400 mb-1">Click exactly where it should press — coordinates are added automatically</p>
-            <div class="relative rounded-lg overflow-hidden border border-slate-200 cursor-crosshair" id="train-img-wrap">
-              <img id="train-img" class="w-full block" />
+          <div id="train-area" class="hidden" style="margin-bottom:12px;">
+            <p style="font-size:10px;color:#aeaeb2;margin:0 0 6px;">Click to record coordinates</p>
+            <div style="position:relative;border-radius:8px;overflow:hidden;border:1px solid rgba(60,60,67,0.1);cursor:crosshair;" id="train-img-wrap">
+              <img id="train-img" style="width:100%;display:block;" />
               <div id="train-dots"></div>
             </div>
-            <button onclick="clearDots()" class="mt-1 text-[10px] text-slate-400 hover:text-slate-600">Clear clicks</button>
+            <button onclick="clearDots()" style="font-size:10px;color:#aeaeb2;background:none;border:none;cursor:pointer;margin-top:4px;font-family:inherit;">Clear clicks</button>
           </div>
 
           <textarea id="feedback-text" rows="3"
-                    placeholder="Click the screenshot above to add click points, or type commands:&#10;NAVIGATE: Recruiting&#10;SHADOW_CLICK: Position Org Chart&#10;CLICK_XY: 500, 350&#10;TYPE: Alex Brackley&#10;PRESS: Enter&#10;WAIT: 1000&#10;JS: document.querySelector('input[type=checkbox]').click()"
-                    class="w-full text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded px-3 py-2 resize-none focus:outline-none focus:ring-1 focus:ring-slate-300 focus:border-slate-400 transition"></textarea>
-          <button onclick="saveAndRetry()"
-                  id="retry-btn"
-                  class="mt-2 w-full py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded transition disabled:opacity-50 disabled:cursor-not-allowed">
-            Save &amp; Retry
-          </button>
-          <button onclick="sendFeedback()"
-                  id="send-btn"
-                  class="mt-1 w-full py-2 text-xs font-medium text-slate-600 bg-white border border-slate-200 hover:bg-slate-50 rounded transition">
-            Save Note Only
-          </button>
-          <p id="send-status" class="hidden mt-2 text-xs text-center text-slate-600 font-medium">Saved</p>
-          <p id="retry-status" class="hidden mt-2 text-xs text-center text-slate-500 font-medium"></p>
+                    placeholder="NAVIGATE: Recruiting&#10;CLICK_XY: 500, 350&#10;TYPE: Alex Brackley&#10;PRESS: Enter&#10;WAIT: 1000"
+                    style="width:100%;font-size:11px;color:#1c1c1e;background:#f2f2f7;border:1px solid rgba(60,60,67,0.12);border-radius:8px;padding:9px 12px;resize:none;outline:none;font-family:monospace;transition:border-color 0.15s;"
+                    onfocus="this.style.borderColor='#0071e3';this.style.boxShadow='0 0 0 3px rgba(0,113,227,0.1)'" onblur="this.style.borderColor='rgba(60,60,67,0.12)';this.style.boxShadow='none'"></textarea>
+          <button onclick="saveAndRetry()" id="retry-btn" class="hdr-btn" style="margin-top:8px;width:100%;justify-content:center;background:#1c1c1e;color:#fff;font-size:12px;border-radius:8px;">Save &amp; Retry</button>
+          <button onclick="sendFeedback()" id="send-btn" class="hdr-btn" style="margin-top:5px;width:100%;justify-content:center;background:#f2f2f7;color:#6e6e73;font-size:12px;border-radius:8px;border:1px solid rgba(60,60,67,0.1);">Save Note Only</button>
+          <p id="send-status" class="hidden" style="margin-top:8px;font-size:12px;text-align:center;color:#34c759;font-weight:600;"></p>
+          <p id="retry-status" class="hidden" style="margin-top:6px;font-size:11px;text-align:center;color:#6e6e73;"></p>
         </div>
       </div>
 
     </div>
     {% endif %}
 
-    <!-- ── Step list ── -->
-    <div class="mt-8 space-y-2">
+    <!-- Step list -->
+    <div style="display:flex;flex-direction:column;gap:8px;">
       {% for step in scenario.steps %}
       {% set status = step_statuses[step.step_id] %}
       <div data-step="{{ step.step_id }}" data-status="{{ status }}"
-           class="bg-white border rounded p-4 transition
-                  {% if status == 'pass' %}border-emerald-200 bg-emerald-50/20
-                  {% elif status == 'fail' %}border-red-200 bg-red-50/20
-                  {% elif status == 'blocked' %}border-amber-200 bg-amber-50/20
-                  {% else %}border-slate-200{% endif %}">
-        <div class="flex items-start gap-4">
-          <span class="mt-1 w-2.5 h-2.5 rounded-full flex-shrink-0
-                       {% if status == 'pass' %}bg-emerald-500
-                       {% elif status == 'fail' %}bg-rose-500
-                       {% elif status == 'blocked' %}bg-amber-500
-                       {% else %}bg-slate-300{% endif %}"></span>
-          <span class="px-2 py-0.5 text-[11px] font-mono font-medium bg-slate-100 text-slate-600 border border-slate-200 rounded flex-shrink-0">{{ step.step_id }}</span>
-          <div class="flex-1 min-w-0">
-            <p class="text-sm text-slate-900">{{ step.action }}</p>
+           class="step-card {% if status == 'pass' %}pass{% elif status == 'fail' %}fail{% elif status == 'blocked' %}blocked{% endif %}">
+        <div style="display:flex;align-items:flex-start;gap:14px;">
+          <span style="margin-top:3px;width:8px;height:8px;border-radius:50%;flex-shrink:0;
+            {% if status == 'pass' %}background:#34c759;
+            {% elif status == 'fail' %}background:#ff3b30;
+            {% elif status == 'blocked' %}background:#ff9500;
+            {% else %}background:#d1d1d6;{% endif %}"></span>
+          <span class="badge-id" style="flex-shrink:0;margin-top:1px;">{{ step.step_id }}</span>
+          <div style="flex:1;min-width:0;">
+            <p style="font-size:14px;color:#1c1c1e;margin:0 0 6px;line-height:1.5;">{{ step.action }}</p>
             {% if step.test_data and step.test_data != "—" %}
-            <p class="text-xs text-slate-500 mt-2"><span class="font-medium text-slate-600">Data:</span> <code class="font-mono text-slate-600">{{ step.test_data }}</code></p>
+            <p style="font-size:12px;color:#6e6e73;margin:0 0 5px;"><span style="font-weight:500;color:#3c3c43;">Data:</span> <code style="font-family:monospace;background:#f2f2f7;padding:1px 5px;border-radius:4px;font-size:11px;">{{ step.test_data }}</code></p>
             {% endif %}
-            <p class="text-xs text-emerald-700 mt-2"><span class="font-medium">Expected:</span> {{ step.expected_result }}</p>
-            <div class="mt-4 flex items-center gap-2">
-              <button data-set="pass" class="status-btn px-3 py-1 text-xs font-medium rounded border transition
-                {% if status == 'pass' %}bg-emerald-600 text-white border-emerald-600{% else %}bg-white text-emerald-700 border-emerald-300 hover:bg-emerald-50{% endif %}">Pass</button>
-              <button data-set="fail" class="status-btn px-3 py-1 text-xs font-medium rounded border transition
-                {% if status == 'fail' %}bg-red-600 text-white border-red-600{% else %}bg-white text-red-700 border-red-300 hover:bg-red-50{% endif %}">Fail</button>
-              <button data-set="blocked" class="status-btn px-3 py-1 text-xs font-medium rounded border transition
-                {% if status == 'blocked' %}bg-amber-500 text-white border-amber-500{% else %}bg-white text-amber-700 border-amber-300 hover:bg-amber-50{% endif %}">Blocked</button>
+            <p style="font-size:12px;color:#34c759;margin:0 0 14px;"><span style="font-weight:500;color:#248a3d;">Expected:</span> {{ step.expected_result }}</p>
+            <div style="display:flex;align-items:center;gap:6px;">
+              <button data-set="pass" class="status-btn"
+                style="{% if status == 'pass' %}background:#34c759;color:#fff;border-color:#34c759;{% else %}background:rgba(52,199,89,0.08);color:#248a3d;border-color:rgba(52,199,89,0.3);{% endif %}">Pass</button>
+              <button data-set="fail" class="status-btn"
+                style="{% if status == 'fail' %}background:#ff3b30;color:#fff;border-color:#ff3b30;{% else %}background:rgba(255,59,48,0.08);color:#d70015;border-color:rgba(255,59,48,0.3);{% endif %}">Fail</button>
+              <button data-set="blocked" class="status-btn"
+                style="{% if status == 'blocked' %}background:#ff9500;color:#fff;border-color:#ff9500;{% else %}background:rgba(255,149,0,0.08);color:#9d5700;border-color:rgba(255,149,0,0.3);{% endif %}">Blocked</button>
               {% if status != 'not_tested' %}
-              <button data-set="not_tested" class="status-btn ml-2 px-3 py-1 text-xs font-medium rounded border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 transition">Reset</button>
+              <button data-set="not_tested" class="status-btn" style="margin-left:6px;background:#f2f2f7;color:#aeaeb2;border-color:rgba(60,60,67,0.12);">Reset</button>
               {% endif %}
             </div>
           </div>
@@ -217,7 +215,6 @@
   let _currentPauseState = null;
 
   // ── Fixed-bottom failure bar ─────────────────────────────────────────────────
-  // Injected once into DOM on first use, shown/hidden via style.display
   let _failureBar = null;
 
   function _ensureFailureBar() {
@@ -229,45 +226,46 @@
       'position:fixed',
       'bottom:0','left:0','right:0',
       'z-index:9000',
-      'box-shadow:0 -4px 32px rgba(0,0,0,0.4)',
-      'font-family:system-ui,sans-serif',
+      'box-shadow:0 -4px 40px rgba(0,0,0,0.18)',
+      'font-family:-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif',
     ].join(';');
     bar.innerHTML = `
-      <div id="fb-header" style="background:#7f1d1d;padding:10px 20px;display:flex;align-items:center;gap:10px;">
-        <span style="width:8px;height:8px;background:#fca5a5;border-radius:50%;display:inline-block;flex-shrink:0;"></span>
-        <span style="color:#fff;font-size:13px;font-weight:700;flex:1;letter-spacing:0.01em;">Step Failed — <span id="fb-step-id" style="font-family:monospace;font-weight:600;font-size:12px;"></span></span>
+      <div id="fb-header" style="background:#1c1c1e;padding:11px 20px;display:flex;align-items:center;gap:10px;">
+        <span style="width:7px;height:7px;background:#ff3b30;border-radius:50%;display:inline-block;flex-shrink:0;"></span>
+        <span style="color:#fff;font-size:13px;font-weight:600;flex:1;letter-spacing:-0.01em;">Step Failed — <span id="fb-step-id" style="font-family:monospace;font-weight:500;font-size:12px;color:#aeaeb2;"></span></span>
         <button onclick="document.getElementById('fb-detail').style.display=document.getElementById('fb-detail').style.display==='none'?'block':'none'"
-          style="background:rgba(255,255,255,0.2);border:none;color:#fff;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;margin-right:8px;">Toggle detail</button>
+          style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:#aeaeb2;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;font-family:inherit;margin-right:6px;">Toggle detail</button>
         <button onclick="window._cancelAndHideBar()"
-          style="background:rgba(255,255,255,0.15);border:1px solid rgba(255,255,255,0.3);color:#fff;border-radius:4px;padding:4px 10px;cursor:pointer;font-size:12px;">Dismiss</button>
+          style="background:rgba(255,59,48,0.15);border:1px solid rgba(255,59,48,0.3);color:#ff3b30;border-radius:6px;padding:4px 12px;cursor:pointer;font-size:12px;font-family:inherit;">Dismiss</button>
       </div>
-      <div id="fb-detail" style="background:#fef2f2;border-top:3px solid #7f1d1d;padding:16px 20px;">
-        <p style="font-size:12px;font-weight:700;color:#991b1b;margin:0 0 4px;">Error:</p>
-        <p id="fb-error" style="font-size:11px;font-family:monospace;background:#fee2e2;padding:8px 12px;border-radius:6px;color:#7f1d1d;word-break:break-all;margin:0 0 14px;max-height:80px;overflow:auto;"></p>
-        <div style="display:flex;gap:10px;align-items:flex-start;">
+      <div id="fb-detail" style="background:#fff;border-top:1px solid rgba(60,60,67,0.1);padding:16px 20px;">
+        <p style="font-size:11px;font-weight:600;color:#ff3b30;margin:0 0 6px;text-transform:uppercase;letter-spacing:0.04em;">Error</p>
+        <p id="fb-error" style="font-size:11px;font-family:monospace;background:#fff0ef;padding:8px 12px;border-radius:7px;color:#d70015;word-break:break-all;margin:0 0 14px;max-height:70px;overflow:auto;border:1px solid rgba(255,59,48,0.15);"></p>
+        <div style="display:flex;gap:12px;align-items:flex-start;">
           <div style="flex:1;">
-            <p style="font-size:12px;font-weight:700;color:#374151;margin:0 0 4px;">How to fix it <span style="font-weight:400;color:#9ca3af;">(type in plain English — Claude reads this)</span></p>
+            <p style="font-size:12px;font-weight:600;color:#1c1c1e;margin:0 0 6px;">How to fix it <span style="font-weight:400;color:#aeaeb2;">(Claude reads this)</span></p>
             <textarea id="fb-description" rows="2"
               placeholder="e.g. The button is top right of the popup, says Accept. Click it."
-              style="width:100%;font-size:13px;border:1px solid #d1d5db;border-radius:6px;padding:8px 10px;resize:none;outline:none;font-family:sans-serif;box-sizing:border-box;"></textarea>
+              style="width:100%;font-size:13px;border:1px solid rgba(60,60,67,0.15);border-radius:8px;padding:8px 12px;resize:none;outline:none;font-family:inherit;box-sizing:border-box;transition:border-color 0.15s;"
+              onfocus="this.style.borderColor='#0071e3';this.style.boxShadow='0 0 0 3px rgba(0,113,227,0.1)'" onblur="this.style.borderColor='rgba(60,60,67,0.15)';this.style.boxShadow='none'"></textarea>
           </div>
-          <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;padding-top:20px;">
+          <div style="display:flex;flex-direction:column;gap:6px;flex-shrink:0;padding-top:22px;">
             <button onclick="window.sendTextFix()"
-              style="background:#991b1b;color:#fff;border:none;border-radius:4px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
+              style="background:#0071e3;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit;">
               Send Fix
             </button>
             <button onclick="window.openLiveControl()"
-              style="background:#1e293b;color:#fff;border:none;border-radius:4px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
+              style="background:#1c1c1e;color:#fff;border:none;border-radius:8px;padding:8px 18px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit;">
               Take Control
             </button>
             <button onclick="window.openFixModal()"
-              style="background:#334155;color:#fff;border:none;border-radius:4px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
+              style="background:#f2f2f7;color:#3c3c43;border:1px solid rgba(60,60,67,0.12);border-radius:8px;padding:8px 18px;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;font-family:inherit;">
               Circle It
             </button>
           </div>
         </div>
-        <p id="fb-status" style="display:none;font-size:12px;color:#16a34a;font-weight:600;margin:8px 0 0;text-align:center;"></p>
-        <p id="fb-screenshot-link" style="font-size:11px;color:#6b7280;margin:8px 0 0;"></p>
+        <p id="fb-status" style="display:none;font-size:12px;color:#34c759;font-weight:600;margin:8px 0 0;text-align:center;"></p>
+        <p id="fb-screenshot-link" style="font-size:11px;color:#aeaeb2;margin:8px 0 0;"></p>
       </div>
       <style>@keyframes fb-pulse{0%,100%{opacity:1}50%{opacity:.2}}</style>`;
     document.body.appendChild(bar);
@@ -283,14 +281,13 @@
     document.getElementById('fb-step-id').textContent = state.paused_step || '';
     document.getElementById('fb-error').textContent = state.error_message || 'Step failed — see screenshot';
     document.getElementById('fb-status').style.display = 'none';
-    // Only clear the text box when a NEW step fails — never wipe while user is typing
     if (state.paused_step !== _lastPausedStep) {
       document.getElementById('fb-description').value = '';
       _lastPausedStep = state.paused_step;
     }
     const linkEl = document.getElementById('fb-screenshot-link');
     if (state.screenshot_url) {
-      linkEl.innerHTML = `<a href="${state.screenshot_url}" target="_blank" style="color:#3b82f6;text-decoration:underline;">Open screenshot in new tab</a>`;
+      linkEl.innerHTML = `<a href="${state.screenshot_url}" target="_blank" style="color:#0071e3;text-decoration:underline;">Open screenshot in new tab</a>`;
     } else {
       linkEl.innerHTML = '';
     }
@@ -312,13 +309,14 @@
     const container = document.getElementById('live-steps');
     if (!container) return;
     container.innerHTML = steps.map(s => `
-      <div style="display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #f1f5f9;">
-        <span style="width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;
-          background:${s.passed ? '#d1fae5' : '#fee2e2'};color:${s.passed ? '#059669' : '#dc2626'};">
+      <div style="display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid rgba(60,60,67,0.06);">
+        <span style="width:18px;height:18px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;
+          background:${s.passed ? 'rgba(52,199,89,0.1)' : 'rgba(255,59,48,0.1)'};
+          color:${s.passed ? '#34c759' : '#ff3b30'};">
           ${s.passed ? '✓' : '✗'}
         </span>
-        <span style="font-size:11px;font-family:monospace;color:#475569;width:110px;flex-shrink:0;">${s.step_id}</span>
-        ${!s.passed && s.error ? `<span style="font-size:11px;color:#dc2626;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(s.error||'').replace(/"/g,'&quot;')}">${(s.error||'').slice(0,90)}</span>` : ''}
+        <span style="font-size:11px;font-family:monospace;color:#6e6e73;width:110px;flex-shrink:0;">${s.step_id}</span>
+        ${!s.passed && s.error ? `<span style="font-size:11px;color:#ff3b30;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${(s.error||'').replace(/"/g,'&quot;')}">${(s.error||'').slice(0,90)}</span>` : ''}
       </div>`).join('');
   }
 
@@ -332,7 +330,7 @@
         if (d.status === 'done' || d.status === 'error') {
           clearInterval(_stepPollTimer);
           const spinner = document.getElementById('live-spinner');
-          spinner.style.background = d.steps && d.steps.filter(s=>!s.passed).length ? '#dc2626' : '#16a34a';
+          spinner.style.background = d.steps && d.steps.filter(s=>!s.passed).length ? '#ff3b30' : '#34c759';
           spinner.style.animation = 'none';
           const failed = (d.steps||[]).filter(s=>!s.passed);
           document.getElementById('live-title').textContent = failed.length
@@ -377,7 +375,6 @@
     _setIdle();
   }
 
-  // On load: show last run steps from disk
   (async function _loadLastRun() {
     try {
       const d = await (await fetch(`/api/run/${SCENARIO_ID}/steps`)).json();
@@ -387,8 +384,7 @@
         const failed = d.steps.filter(s => !s.passed);
         const spinner = document.getElementById('live-spinner');
         spinner.style.animation = 'none';
-        spinner.style.background = failed.length ? '#dc2626' : '#16a34a';
-        // If run is currently paused, don't claim "all steps passed" — status check below will handle title
+        spinner.style.background = failed.length ? '#ff3b30' : '#34c759';
         if (d.status !== 'running' && d.status !== 'paused') {
           document.getElementById('live-title').textContent = failed.length
             ? `Last run — stopped at ${failed[failed.length-1].step_id}`
@@ -398,7 +394,6 @@
     } catch(e) {}
   })();
 
-  // On load: check for active paused/running/confirming run
   (async function _checkOnLoad() {
     try {
       const data = await (await fetch(`/api/run/${SCENARIO_ID}/status`)).json();
@@ -432,7 +427,6 @@
     } catch(e) {}
   })();
 
-  // ── Send fix (text → Claude → commands → resume) ────────────────────────────
   async function _sendFix(commands, comment) {
     document.getElementById('fb-status').textContent = 'Sending fix…';
     document.getElementById('fb-status').style.display = 'block';
@@ -479,59 +473,54 @@
     await _sendFix(commands, description);
   };
 
-  window.submitFixText = window.sendTextFix;  // alias
+  window.submitFixText = window.sendTextFix;
 
-  // ── Teach This Step modal ─────────────────────────────────────────────────────
-  // Click directly on the screenshot to record coordinates. Each click adds a
-  // CLICK_XY command. Commands are saved permanently as step feedback so every
-  // future run uses them without asking again.
   window.openFixModal = function() {
     const state = _currentPauseState;
     if (!state) return;
     const shotUrl = state.screenshot_url || '';
     const stepId = state.paused_step || '';
-    const clicks = [];  // [{sfX, sfY, dispX, dispY}]
+    const clicks = [];
 
     const modal = document.createElement('div');
     modal.id = 'fix-modal';
-    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#0d0d0d;display:flex;flex-direction:column;font-family:system-ui,sans-serif;';
+    modal.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#0a0a0a;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif;';
     modal.innerHTML = `
-      <div style="background:#111827;border-bottom:1px solid #1f2937;padding:10px 20px;display:flex;align-items:center;gap:12px;flex-shrink:0;">
-        <span style="color:#e2e8f0;font-weight:600;font-size:13px;">Teach Step ${stepId} — click exactly where it should click</span>
-        <span style="color:#6b7280;font-size:12px;flex:1;">Each click records a coordinate. Add waits between clicks if needed. Saves permanently.</span>
+      <div style="background:#1c1c1e;border-bottom:1px solid rgba(255,255,255,0.08);padding:11px 20px;display:flex;align-items:center;gap:12px;flex-shrink:0;">
+        <span style="color:#fff;font-weight:600;font-size:13px;">Teach Step ${stepId}</span>
+        <span style="color:#6e6e73;font-size:12px;flex:1;">Click exactly where the browser should click</span>
         <button onclick="document.body.removeChild(document.getElementById('fix-modal'))"
-          style="background:transparent;border:1px solid #374151;color:#9ca3af;border-radius:4px;padding:4px 12px;cursor:pointer;font-size:12px;">Close</button>
+          style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);color:#aeaeb2;border-radius:7px;padding:5px 14px;cursor:pointer;font-size:12px;font-family:inherit;">Close</button>
       </div>
       <div style="flex:1;display:flex;overflow:hidden;min-height:0;">
         <div style="flex:1;overflow:auto;background:#000;display:flex;align-items:flex-start;justify-content:center;padding:12px;position:relative;cursor:crosshair;" id="fm-wrap">
           <img id="fm-img" src="${shotUrl}" style="max-width:100%;display:block;user-select:none;" draggable="false"/>
           <canvas id="fm-canvas" style="position:absolute;pointer-events:none;"></canvas>
         </div>
-        <div style="width:300px;flex-shrink:0;background:#111827;border-left:1px solid #1f2937;padding:16px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;">
+        <div style="width:290px;flex-shrink:0;background:#1c1c1e;border-left:1px solid rgba(255,255,255,0.06);padding:16px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;">
           <div>
-            <p style="color:#9ca3af;font-size:11px;margin:0 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Recorded clicks</p>
+            <p style="color:#aeaeb2;font-size:10px;margin:0 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Recorded clicks</p>
             <div id="fm-click-list" style="display:flex;flex-direction:column;gap:4px;min-height:20px;">
-              <span style="color:#4b5563;font-size:11px;font-style:italic;">Click on the screenshot…</span>
+              <span style="color:#6e6e73;font-size:11px;font-style:italic;">Click on the screenshot…</span>
             </div>
           </div>
-          <div style="border-top:1px solid #1f2937;padding-top:12px;">
-            <p style="color:#9ca3af;font-size:11px;margin:0 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Extra commands</p>
-            <p style="color:#6b7280;font-size:10px;margin:0 0 6px;">Add WAIT, CLICK, TYPE etc. after your clicks:</p>
+          <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:12px;">
+            <p style="color:#aeaeb2;font-size:10px;margin:0 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Extra commands</p>
             <textarea id="fm-extra" rows="4" placeholder="WAIT: 1500&#10;CLICK: Copy Position&#10;WAIT: 1000"
-              style="width:100%;background:#0d0d0d;color:#e5e7eb;border:1px solid #374151;border-radius:4px;padding:8px;font-size:12px;font-family:monospace;resize:vertical;outline:none;box-sizing:border-box;"></textarea>
+              style="width:100%;background:#000;color:#e5e7eb;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:8px;font-size:12px;font-family:monospace;resize:vertical;outline:none;box-sizing:border-box;"></textarea>
           </div>
-          <div style="border-top:1px solid #1f2937;padding-top:12px;display:flex;flex-direction:column;gap:6px;">
+          <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:12px;display:flex;flex-direction:column;gap:6px;">
             <button onclick="window._teachUndo()"
-              style="background:#1f2937;color:#9ca3af;border:1px solid #374151;border-radius:4px;padding:6px;font-size:11px;cursor:pointer;">Undo last click</button>
+              style="background:rgba(255,255,255,0.06);color:#aeaeb2;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:6px;font-size:11px;cursor:pointer;font-family:inherit;">Undo last click</button>
             <button onclick="window._teachSaveAndRetry()"
-              style="background:#1e293b;color:#fff;border:1px solid #334155;border-radius:4px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;">
+              style="background:#0071e3;color:#fff;border:none;border-radius:8px;padding:10px;font-size:13px;font-weight:600;cursor:pointer;font-family:inherit;">
               Save permanently &amp; retry
             </button>
             <button onclick="window._teachSendOnce()"
-              style="background:transparent;color:#6b7280;border:1px solid #374151;border-radius:4px;padding:8px;font-size:12px;cursor:pointer;">
+              style="background:rgba(255,255,255,0.06);color:#6e6e73;border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:8px;font-size:12px;cursor:pointer;font-family:inherit;">
               Try once only (don't save)
             </button>
-            <p id="fm-status" style="color:#4ade80;font-size:11px;text-align:center;display:none;font-weight:600;"></p>
+            <p id="fm-status" style="color:#34c759;font-size:11px;text-align:center;display:none;font-weight:600;"></p>
           </div>
         </div>
       </div>`;
@@ -560,9 +549,9 @@
       clicks.forEach((c, i) => {
         ctx.beginPath();
         ctx.arc(c.dispX, c.dispY, 10, 0, Math.PI * 2);
-        ctx.fillStyle = 'rgba(239,68,68,0.25)';
+        ctx.fillStyle = 'rgba(0,113,227,0.2)';
         ctx.fill();
-        ctx.strokeStyle = '#ef4444'; ctx.lineWidth = 2;
+        ctx.strokeStyle = '#0071e3'; ctx.lineWidth = 2;
         ctx.stroke();
         ctx.fillStyle = '#fff'; ctx.font = 'bold 10px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(i + 1, c.dispX, c.dispY);
@@ -571,13 +560,13 @@
 
     function _rebuildList() {
       const list = modal.querySelector('#fm-click-list');
-      if (!clicks.length) { list.innerHTML = '<span style="color:#4b5563;font-size:11px;font-style:italic;">Click on the screenshot…</span>'; return; }
+      if (!clicks.length) { list.innerHTML = '<span style="color:#6e6e73;font-size:11px;font-style:italic;">Click on the screenshot…</span>'; return; }
       list.innerHTML = clicks.map((c, i) => `
-        <div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:#0d0d0d;border-radius:3px;">
-          <span style="color:#ef4444;font-size:10px;font-weight:700;width:14px;">${i+1}</span>
-          <span style="color:#22c55e;font-size:11px;font-family:monospace;flex:1;">CLICK_XY: ${c.sfX}, ${c.sfY}</span>
+        <div style="display:flex;align-items:center;gap:6px;padding:4px 6px;background:rgba(0,0,0,0.3);border-radius:5px;">
+          <span style="color:#0071e3;font-size:10px;font-weight:700;width:14px;">${i+1}</span>
+          <span style="color:#34c759;font-size:11px;font-family:monospace;flex:1;">CLICK_XY: ${c.sfX}, ${c.sfY}</span>
         </div>
-        <div style="padding:2px 6px 2px 26px;"><span style="color:#6b7280;font-size:10px;font-family:monospace;">WAIT: 1000</span></div>
+        <div style="padding:2px 6px 2px 26px;"><span style="color:#6e6e73;font-size:10px;font-family:monospace;">WAIT: 1000</span></div>
       `).join('');
     }
 
@@ -598,11 +587,7 @@
       return [clickCmds, extra].filter(Boolean).join('\n');
     }
 
-    window._teachUndo = () => {
-      clicks.pop();
-      _redrawDots();
-      _rebuildList();
-    };
+    window._teachUndo = () => { clicks.pop(); _redrawDots(); _rebuildList(); };
 
     window._teachSendOnce = async () => {
       const commands = _buildCommands();
@@ -619,28 +604,19 @@
       const statusEl = modal.querySelector('#fm-status');
       statusEl.style.display = 'block';
       statusEl.textContent = 'Saving permanently…';
-
-      // Save as permanent step feedback so every future run uses these coordinates
       const fd = new FormData();
       fd.append('scenario_id', SCENARIO_ID);
       fd.append('step_id', stepId);
       fd.append('feedback', commands);
       fd.append('push', 'true');
       const saved = await fetch('/api/step-feedback', { method: 'POST', body: fd });
-
-      if (!saved.ok) {
-        statusEl.textContent = 'Save failed — try again';
-        statusEl.style.color = '#ef4444';
-        return;
-      }
-
+      if (!saved.ok) { statusEl.textContent = 'Save failed — try again'; statusEl.style.color = '#ff3b30'; return; }
       statusEl.textContent = 'Saved. Resuming run…';
       await _sendFix(commands, 'Taught via click-to-teach');
       document.body.removeChild(modal);
     };
   };
 
-  // ── Click-to-train screenshot ────────────────────────────────────────────────
   const _trainImg = document.getElementById('train-img');
   const _trainWrap = document.getElementById('train-img-wrap');
   const _trainDots = document.getElementById('train-dots');
@@ -653,11 +629,7 @@
     ta.value = (ta.value.trim() ? ta.value.trim() + '\n' : '') + `CLICK_XY: ${x}, ${y}`;
     const dot = document.createElement('div');
     dot.className = 'absolute pointer-events-none';
-    dot.style.cssText = `left:${(e.clientX-rect.left)/rect.width*100}%;top:${(e.clientY-rect.top)/rect.height*100}%;transform:translate(-50%,-50%);width:18px;height:18px;background:#ef4444;border:2px solid white;border-radius:50%;box-shadow:0 0 0 2px #ef4444;`;
-    const lbl = document.createElement('span');
-    lbl.className = 'absolute left-5 top-0 text-[10px] font-mono text-white bg-red-500 px-1 rounded whitespace-nowrap';
-    lbl.textContent = `${x}, ${y}`;
-    dot.appendChild(lbl);
+    dot.style.cssText = `position:absolute;left:${(e.clientX-rect.left)/rect.width*100}%;top:${(e.clientY-rect.top)/rect.height*100}%;transform:translate(-50%,-50%);width:16px;height:16px;background:#0071e3;border:2px solid white;border-radius:50%;box-shadow:0 0 0 2px rgba(0,113,227,0.3);`;
     _trainDots.appendChild(dot);
   });
 
@@ -667,31 +639,29 @@
     ta.value = ta.value.split('\n').filter(l => !l.trim().startsWith('CLICK_XY')).join('\n').trim();
   }
 
-  // ── Pre-run questions overlay ────────────────────────────────────────────────
   async function _showQuestionsIfNeeded() {
     const analysis = await (await fetch(`/api/analyse/${SCENARIO_ID}`)).json();
     const allQuestions = analysis.questions || [];
-    // Always include pre-saved defaults in returned answers
     const preAnswers = {};
     allQuestions.forEach(q => { if (q.default) preAnswers[q.key] = q.default; });
     const unanswered = allQuestions.filter(q => !q.default);
     if (!unanswered.length) return preAnswers;
     return new Promise(resolve => {
       const overlay = document.createElement('div');
-      overlay.style.cssText = `position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.7);display:flex;align-items:center;justify-content:center;`;
+      overlay.style.cssText = `position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,.5);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;`;
       const box = document.createElement('div');
-      box.style.cssText = `background:#fff;border-radius:12px;padding:28px;max-width:480px;width:90%;`;
+      box.style.cssText = `background:#fff;border-radius:16px;padding:28px;max-width:480px;width:90%;box-shadow:0 20px 60px rgba(0,0,0,0.2);`;
       box.innerHTML = `
-        <h2 style="font-size:16px;font-weight:700;margin-bottom:4px;">Before we start</h2>
-        <p style="font-size:12px;color:#6b7280;margin-bottom:16px;">Answer these so the script knows what to use.</p>
+        <h2 style="font-size:17px;font-weight:700;margin:0 0 4px;letter-spacing:-0.01em;">Before we start</h2>
+        <p style="font-size:13px;color:#6e6e73;margin:0 0 18px;">Answer these so the script knows what to use.</p>
         ${unanswered.map(q => `
-          <div style="margin-bottom:12px;">
-            <label style="font-size:12px;font-weight:600;color:#374151;display:block;margin-bottom:4px;">${q.question}</label>
+          <div style="margin-bottom:14px;">
+            <label style="font-size:12px;font-weight:600;color:#1c1c1e;display:block;margin-bottom:5px;">${q.question}</label>
             <input id="q-${q.key}" type="text" value="" placeholder="Type here…"
-              style="width:100%;border:1px solid #d1d5db;border-radius:6px;padding:7px 10px;font-size:13px;outline:none;">
+              style="width:100%;border:1px solid rgba(60,60,67,0.15);border-radius:8px;padding:8px 12px;font-size:13px;outline:none;font-family:inherit;box-sizing:border-box;">
           </div>`).join('')}
         <button onclick="this.closest('[style]').dispatchEvent(new CustomEvent('submit',{bubbles:true}))"
-          style="width:100%;background:#111;color:#fff;border:none;border-radius:8px;padding:10px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;">
+          style="width:100%;background:#0071e3;color:#fff;border:none;border-radius:10px;padding:11px;font-size:14px;font-weight:600;cursor:pointer;margin-top:4px;font-family:inherit;">
           Start run
         </button>`;
       overlay.appendChild(box);
@@ -705,7 +675,6 @@
     });
   }
 
-  // ── Approve / unapprove ─────────────────────────────────────────────────────
   async function approveRun() {
     const res = await fetch(`/api/scenario/${SCENARIO_ID}/approve`, { method: 'POST' });
     if (res.ok) window.location.reload();
@@ -715,7 +684,6 @@
     if (res.ok) window.location.reload();
   }
 
-  // ── Supervised confirmation bar ─────────────────────────────────────────────
   let _confirmBar = null;
   let _supervisedMode = false;
 
@@ -728,24 +696,24 @@
       'position:fixed',
       'bottom:0','left:0','right:0',
       'z-index:9100',
-      'box-shadow:0 -4px 32px rgba(0,0,0,0.4)',
-      'font-family:system-ui,sans-serif',
+      'box-shadow:0 -4px 40px rgba(0,0,0,0.15)',
+      'font-family:-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif',
     ].join(';');
     bar.innerHTML = `
-      <div style="background:#0f172a;padding:12px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-        <span style="width:8px;height:8px;background:#34d399;border-radius:50%;display:inline-block;flex-shrink:0;"></span>
-        <span style="color:#e2e8f0;font-size:13px;font-weight:600;flex:1;">
-          Step complete — <span id="cb-step-id" style="font-family:monospace;color:#94a3b8;"></span>
-          <span style="font-weight:400;color:#64748b;font-size:12px;"> — did it work correctly?</span>
+      <div style="background:#1c1c1e;padding:13px 20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+        <span style="width:7px;height:7px;background:#34c759;border-radius:50%;display:inline-block;flex-shrink:0;"></span>
+        <span style="color:#fff;font-size:13px;font-weight:600;flex:1;">
+          Step complete — <span id="cb-step-id" style="font-family:monospace;color:#aeaeb2;font-weight:400;"></span>
+          <span style="font-weight:400;color:#6e6e73;font-size:12px;"> — did it work?</span>
         </span>
         <a id="cb-shot-link" href="#" target="_blank"
-           style="font-size:11px;color:#60a5fa;text-decoration:underline;display:none;">View screenshot</a>
+           style="font-size:11px;color:#0071e3;text-decoration:underline;display:none;">View screenshot</a>
         <button onclick="window._confirmStep(true)"
-          style="background:#059669;color:#fff;border:none;border-radius:4px;padding:8px 20px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;">
+          style="background:#34c759;color:#fff;border:none;border-radius:8px;padding:8px 20px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;font-family:inherit;">
           Yes — next step
         </button>
         <button onclick="window._confirmStep(false)"
-          style="background:#7f1d1d;color:#fff;border:none;border-radius:4px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
+          style="background:rgba(255,59,48,0.15);color:#ff3b30;border:1px solid rgba(255,59,48,0.3);border-radius:8px;padding:8px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit;">
           No — redo
         </button>
       </div>`;
@@ -758,12 +726,7 @@
     const bar = _ensureConfirmBar();
     document.getElementById('cb-step-id').textContent = stepId || '';
     const link = document.getElementById('cb-shot-link');
-    if (screenshotUrl) {
-      link.href = screenshotUrl;
-      link.style.display = 'inline';
-    } else {
-      link.style.display = 'none';
-    }
+    if (screenshotUrl) { link.href = screenshotUrl; link.style.display = 'inline'; } else { link.style.display = 'none'; }
     bar.style.display = 'block';
   }
 
@@ -781,7 +744,6 @@
     });
   };
 
-  // ── Run button ──────────────────────────────────────────────────────────────
   async function startRun(supervised) {
     supervised = !!supervised;
     _supervisedMode = supervised;
@@ -830,7 +792,6 @@
     }, 3000);
   }
 
-  // ── Live step mode ──────────────────────────────────────────────────────────
   async function startLive() {
     const btn = document.getElementById('run-btn');
     const supBtn = document.getElementById('supervised-btn');
@@ -851,7 +812,6 @@
     if (!res.ok) { label.textContent = 'Failed to start'; btn.disabled = false; if (supBtn) supBtn.disabled = false; return; }
     label.textContent = 'Waiting for browser…';
 
-    // Poll until first live_step pause, then redirect to live click trainer
     _pollTimer = setInterval(async () => {
       try {
         const data = await (await fetch(`/api/run/${SCENARIO_ID}/status`)).json();
@@ -876,27 +836,19 @@
     }, 2000);
   }
 
-  // Open the live control overlay in "step-by-step" mode
   function _openLiveStepView(state) {
-    // Don't open multiple overlays
     if (document.getElementById('live-control-overlay')) return;
-    // Temporarily set _currentPauseState so openLiveControl can read it
     _currentPauseState = state;
-    openLiveControl(true);  // pass liveStep=true to adjust the header
+    openLiveControl(true);
   }
 
-  // ── Feedback panel ──────────────────────────────────────────────────────────
   function selectStep(stepId, passed) {
     _selectedStep = stepId;
-
-    // Highlight selected button
     document.querySelectorAll('[id^="step-btn-"]').forEach(b => {
-      b.classList.remove('bg-slate-100', 'border-slate-300');
+      b.style.background = 'transparent';
     });
     const btn = document.getElementById(`step-btn-${stepId}`);
-    if (btn) btn.classList.add('bg-slate-100', 'border-slate-300');
-
-    // Show feedback box
+    if (btn) btn.style.background = '#f2f2f7';
     const box = document.getElementById('feedback-box');
     box.classList.remove('hidden');
     document.getElementById('feedback-step-label').textContent = stepId;
@@ -906,17 +858,10 @@
     document.getElementById('retry-btn').disabled = false;
     document.getElementById('retry-btn').textContent = 'Save & Retry now';
     document.getElementById('send-btn').textContent = 'Save note only';
-
-    // Show click-to-train screenshot if we have one for this step
     const shotUrl = STEP_SCREENSHOTS[stepId];
     const trainArea = document.getElementById('train-area');
     _trainDots.innerHTML = '';
-    if (shotUrl) {
-      _trainImg.src = shotUrl;
-      trainArea.classList.remove('hidden');
-    } else {
-      trainArea.classList.add('hidden');
-    }
+    if (shotUrl) { _trainImg.src = shotUrl; trainArea.classList.remove('hidden'); } else { trainArea.classList.add('hidden'); }
   }
 
   async function _saveFeedback(push = true) {
@@ -932,7 +877,7 @@
   }
 
   async function sendFeedback() {
-    const ok = await _saveFeedback(true);  // push to GitHub so Railway has it
+    const ok = await _saveFeedback(true);
     if (ok) {
       document.getElementById('send-btn').textContent = 'Saved ✓';
       document.getElementById('send-status').classList.remove('hidden');
@@ -945,33 +890,19 @@
     retryBtn.disabled = true;
     retryBtn.textContent = 'Saving…';
     statusEl.classList.add('hidden');
-
-    const saved = await _saveFeedback(false);  // local save only — no git push, no redeploy
-    if (!saved) {
-      retryBtn.textContent = 'Save failed';
-      retryBtn.disabled = false;
-      return;
-    }
-
+    const saved = await _saveFeedback(false);
+    if (!saved) { retryBtn.textContent = 'Save failed'; retryBtn.disabled = false; return; }
     retryBtn.textContent = 'Starting run…';
     const runRes = await fetch(`/api/run/${SCENARIO_ID}`, { method: 'POST' });
-    if (!runRes.ok) {
-      retryBtn.textContent = 'Could not start — try Run scenario button';
-      retryBtn.disabled = false;
-      return;
-    }
-
+    if (!runRes.ok) { retryBtn.textContent = 'Could not start — try Run scenario button'; retryBtn.disabled = false; return; }
     retryBtn.textContent = 'Running…';
     statusEl.textContent = 'Running with your feedback — page will reload when done';
     statusEl.classList.remove('hidden');
-
     if (_pollTimer) clearInterval(_pollTimer);
     _pollTimer = setInterval(async () => {
       const data = await (await fetch(`/api/run/${SCENARIO_ID}/status`)).json();
-      if (data.status === 'done') {
-        clearInterval(_pollTimer);
-        window.location.reload();
-      } else if (data.status === 'error') {
+      if (data.status === 'done') { clearInterval(_pollTimer); window.location.reload(); }
+      else if (data.status === 'error') {
         clearInterval(_pollTimer);
         retryBtn.textContent = 'Run errored';
         retryBtn.disabled = false;
@@ -982,27 +913,17 @@
     }, 3000);
   }
 
-  // ── Take Control (any time) ───────────────────────────────────────────────────
   window.takeControlAnytime = async function() {
     const status = _ACTIVE_RUNS_STATUS || 'idle';
-
-    if (_currentPauseState && status === 'paused') {
-      // Already paused — just open the live view
-      window.openLiveControl();
-      return;
-    }
-
+    if (_currentPauseState && status === 'paused') { window.openLiveControl(); return; }
     const controlBtn = document.getElementById('control-btn');
     const controlLabel = document.getElementById('control-label');
     controlBtn.disabled = true;
     controlLabel.textContent = 'Requesting…';
-
-    // Get any pre-run answers if idle
     let answers = {};
     if (status === 'idle' || status === 'done' || status === 'error') {
       try { answers = await _showQuestionsIfNeeded(); } catch(e) {}
     }
-
     try {
       await fetch(`/api/live/${SCENARIO_ID}/request-control`, {
         method: 'POST',
@@ -1010,10 +931,7 @@
         body: JSON.stringify({answers}),
       });
     } catch(e) {}
-
     controlLabel.textContent = 'Waiting for pause…';
-
-    // Poll until paused, then open live control
     const pollInterval = setInterval(async () => {
       try {
         const d = await (await fetch(`/api/run/${SCENARIO_ID}/status`)).json();
@@ -1032,7 +950,6 @@
     }, 1000);
   };
 
-  // Track current run status for takeControlAnytime
   let _ACTIVE_RUNS_STATUS = 'idle';
   (async function _initStatus() {
     try {
@@ -1041,21 +958,16 @@
     } catch(e) {}
   })();
 
-  // ── Live Control ─────────────────────────────────────────────────────────────
   window.openLiveControl = function(liveStep) {
     const state = _currentPauseState;
     if (!state) return;
-
-    const recorded = [];   // {cmd, label} objects
+    const recorded = [];
     let _refreshTimer = null;
     let _busy = false;
     const isLiveStep = !!liveStep || !!state.live_step;
-
     const stepLabel = state.paused_step || '';
     const stepAction = (state.error_message || '').replace(/^Step \d+\/\d+: /, '');
-    const headerTitle = isLiveStep
-      ? `Step — ${stepLabel}`
-      : `Live Control — ${stepLabel}`;
+    const headerTitle = isLiveStep ? `Step — ${stepLabel}` : `Live Control — ${stepLabel}`;
     const headerSub = isLiveStep
       ? (stepAction || 'Drive the browser below. Click, type, then press Step Done when complete.')
       : 'Click anywhere on the browser to send clicks. Every action is recorded and saved automatically.';
@@ -1063,56 +975,54 @@
 
     const overlay = document.createElement('div');
     overlay.id = 'live-control-overlay';
-    overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#0a0a0a;display:flex;flex-direction:column;font-family:system-ui,sans-serif;';
+    overlay.style.cssText = 'position:fixed;inset:0;z-index:10000;background:#0a0a0a;display:flex;flex-direction:column;font-family:-apple-system,BlinkMacSystemFont,Helvetica Neue,Arial,sans-serif;';
     overlay.innerHTML = `
-      <div style="background:#111;border-bottom:1px solid #222;padding:10px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">
-        <span id="lc-step-title" style="color:#e2e8f0;font-weight:600;font-size:13px;letter-spacing:0.01em;white-space:nowrap;">${headerTitle}</span>
-        <span id="lc-step-action" style="color:#6b7280;font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${headerSub}</span>
+      <div style="background:#1c1c1e;border-bottom:1px solid rgba(255,255,255,0.08);padding:11px 16px;display:flex;align-items:center;gap:12px;flex-shrink:0;">
+        <span id="lc-step-title" style="color:#fff;font-weight:600;font-size:13px;letter-spacing:-0.01em;white-space:nowrap;">${headerTitle}</span>
+        <span id="lc-step-action" style="color:#6e6e73;font-size:12px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${headerSub}</span>
         <button id="lc-done-btn" onclick="window._lcDone()"
-          style="background:${isLiveStep ? '#065f46' : '#1e293b'};color:#fff;border:1px solid ${isLiveStep ? '#047857' : '#334155'};border-radius:4px;padding:7px 16px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;">
+          style="background:${isLiveStep ? '#34c759' : '#0071e3'};color:#fff;border:none;border-radius:8px;padding:7px 18px;font-size:12px;font-weight:600;cursor:pointer;white-space:nowrap;font-family:inherit;">
           ${doneLabel}
         </button>
         <button onclick="window._lcClose()"
-          style="background:transparent;border:1px solid #333;color:#9ca3af;border-radius:6px;padding:7px 12px;font-size:12px;cursor:pointer;">
+          style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);color:#aeaeb2;border-radius:7px;padding:7px 12px;font-size:12px;cursor:pointer;font-family:inherit;">
           ✕ Cancel
         </button>
       </div>
       <div style="flex:1;display:flex;overflow:hidden;min-height:0;">
-        <!-- Live browser view -->
         <div style="flex:1;overflow:auto;background:#000;display:flex;align-items:flex-start;justify-content:center;padding:8px;position:relative;cursor:crosshair;" id="lc-img-wrap">
           <img id="lc-img" style="max-width:100%;max-height:100%;display:block;user-select:none;" draggable="false" />
           <div id="lc-overlay-dots" style="position:absolute;top:8px;left:50%;transform:translateX(-50%);pointer-events:none;"></div>
-          <div id="lc-spinner" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#fff;font-size:13px;display:none;">Loading…</div>
+          <div id="lc-spinner" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:#6e6e73;font-size:13px;display:none;">Loading…</div>
         </div>
-        <!-- Recorded commands sidebar -->
-        <div style="width:280px;flex-shrink:0;background:#111;border-left:1px solid #1f1f1f;padding:14px;display:flex;flex-direction:column;gap:10px;overflow-y:auto;">
+        <div style="width:270px;flex-shrink:0;background:#1c1c1e;border-left:1px solid rgba(255,255,255,0.06);padding:14px;display:flex;flex-direction:column;gap:12px;overflow-y:auto;">
           <div>
-            <p style="color:#9ca3af;font-size:11px;margin:0 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Recorded commands</p>
+            <p style="color:#aeaeb2;font-size:10px;margin:0 0 8px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Recorded</p>
             <div id="lc-cmd-list" style="display:flex;flex-direction:column;gap:3px;min-height:30px;">
-              <span style="color:#4b5563;font-size:11px;font-style:italic;">Click the browser to start recording…</span>
+              <span style="color:#6e6e73;font-size:11px;font-style:italic;">Click the browser to start…</span>
             </div>
           </div>
-          <div style="border-top:1px solid #222;padding-top:10px;">
-            <p style="color:#9ca3af;font-size:11px;margin:0 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;">Type text</p>
+          <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:10px;">
+            <p style="color:#aeaeb2;font-size:10px;margin:0 0 6px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;">Type text</p>
             <div style="display:flex;gap:4px;">
               <input id="lc-type-input" type="text" placeholder="Text to type…"
-                style="flex:1;background:#1a1a1a;border:1px solid #333;border-radius:6px;color:#e5e7eb;padding:6px 8px;font-size:12px;outline:none;"
+                style="flex:1;background:rgba(0,0,0,0.4);border:1px solid rgba(255,255,255,0.1);border-radius:7px;color:#e5e7eb;padding:6px 8px;font-size:12px;outline:none;font-family:inherit;"
                 onkeydown="if(event.key==='Enter'){window._lcType();}" />
               <button onclick="window._lcType()"
-                style="background:#374151;color:#e5e7eb;border:none;border-radius:6px;padding:6px 10px;font-size:12px;cursor:pointer;">Type</button>
+                style="background:rgba(255,255,255,0.08);color:#e5e7eb;border:1px solid rgba(255,255,255,0.1);border-radius:7px;padding:6px 10px;font-size:12px;cursor:pointer;font-family:inherit;">Type</button>
             </div>
-            <div style="display:flex;gap-4px;margin-top:6px;flex-wrap:wrap;gap:4px;">
-              <button onclick="window._lcKey('Enter')" style="background:#1f2937;color:#9ca3af;border:1px solid #374151;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;">↵ Enter</button>
-              <button onclick="window._lcKey('ArrowDown')" style="background:#1f2937;color:#9ca3af;border:1px solid #374151;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;">↓</button>
-              <button onclick="window._lcKey('ArrowUp')" style="background:#1f2937;color:#9ca3af;border:1px solid #374151;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;">↑</button>
-              <button onclick="window._lcKey('Escape')" style="background:#1f2937;color:#9ca3af;border:1px solid #374151;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;">Esc</button>
-              <button onclick="window._lcKey('Tab')" style="background:#1f2937;color:#9ca3af;border:1px solid #374151;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;">Tab</button>
+            <div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:7px;">
+              <button onclick="window._lcKey('Enter')" style="background:rgba(255,255,255,0.06);color:#aeaeb2;border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit;">↵ Enter</button>
+              <button onclick="window._lcKey('ArrowDown')" style="background:rgba(255,255,255,0.06);color:#aeaeb2;border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit;">↓</button>
+              <button onclick="window._lcKey('ArrowUp')" style="background:rgba(255,255,255,0.06);color:#aeaeb2;border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit;">↑</button>
+              <button onclick="window._lcKey('Escape')" style="background:rgba(255,255,255,0.06);color:#aeaeb2;border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit;">Esc</button>
+              <button onclick="window._lcKey('Tab')" style="background:rgba(255,255,255,0.06);color:#aeaeb2;border:1px solid rgba(255,255,255,0.1);border-radius:5px;padding:3px 8px;font-size:11px;cursor:pointer;font-family:inherit;">Tab</button>
             </div>
           </div>
-          <div style="border-top:1px solid #222;padding-top:10px;">
-            <button onclick="window._lcUndo()" style="width:100%;background:#1f2937;color:#6b7280;border:1px solid #374151;border-radius:6px;padding:5px;font-size:11px;cursor:pointer;">↩ Undo last</button>
+          <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:10px;">
+            <button onclick="window._lcUndo()" style="width:100%;background:rgba(255,255,255,0.04);color:#6e6e73;border:1px solid rgba(255,255,255,0.08);border-radius:7px;padding:5px;font-size:11px;cursor:pointer;font-family:inherit;">↩ Undo last</button>
           </div>
-          <p id="lc-status" style="color:#4ade80;font-size:11px;text-align:center;display:none;font-weight:600;"></p>
+          <p id="lc-status" style="color:#34c759;font-size:11px;text-align:center;display:none;font-weight:600;"></p>
         </div>
       </div>`;
     document.body.appendChild(overlay);
@@ -1125,8 +1035,8 @@
       const list = document.getElementById('lc-cmd-list');
       if (recorded.length === 1) list.innerHTML = '';
       const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 6px;background:#1a1a1a;border-radius:4px;';
-      row.innerHTML = `<span style="color:#22c55e;font-size:10px;font-family:monospace;flex:1;">${label}</span>`;
+      row.style.cssText = 'display:flex;align-items:center;gap:6px;padding:3px 6px;background:rgba(0,0,0,0.3);border-radius:5px;';
+      row.innerHTML = `<span style="color:#34c759;font-size:10px;font-family:monospace;flex:1;">${label}</span>`;
       list.appendChild(row);
       list.scrollTop = list.scrollHeight;
     }
@@ -1134,31 +1044,23 @@
     function _refreshShot() {
       const spinner = document.getElementById('lc-spinner');
       fetch(`/api/live/${SCENARIO_ID}/screenshot?t=${Date.now()}`)
-        .then(r => {
-          if (!r.ok) throw new Error(`${r.status}`);
-          return r.blob();
-        })
-        .then(blob => {
-          img.src = URL.createObjectURL(blob);
-          if (spinner) spinner.style.display = 'none';
-        })
+        .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.blob(); })
+        .then(blob => { img.src = URL.createObjectURL(blob); if (spinner) spinner.style.display = 'none'; })
         .catch(err => {
           if (spinner) {
             spinner.style.display = 'block';
-            spinner.style.color = '#f87171';
+            spinner.style.color = '#ff3b30';
             spinner.innerHTML = err.message === '404'
-              ? '⚠ No live browser — reset and rerun the scenario to use Live Control'
+              ? '⚠ No live browser — reset and rerun the scenario'
               : `⚠ Screenshot failed (${err.message}) — retrying…`;
           }
         });
     }
 
-    // Refresh every 2 seconds throughout — fast enough to feel live
     if (spinner) { spinner.style.display = 'block'; spinner.textContent = 'Connecting to browser…'; }
     _refreshShot();
     _refreshTimer = setInterval(_refreshShot, 2000);
 
-    // Click on browser image — queue the click, screenshot arrives via next poll
     wrap.addEventListener('click', async (e) => {
       if (_busy) return;
       const r = img.getBoundingClientRect();
@@ -1166,9 +1068,8 @@
       const bx = Math.round((e.clientX - r.left) * (img.naturalWidth / r.width));
       const by = Math.round((e.clientY - r.top) * (img.naturalHeight / r.height));
       _busy = true;
-      // Show a quick flash dot so user knows the click registered
       const flash = document.createElement('div');
-      flash.style.cssText = `position:absolute;width:18px;height:18px;border-radius:50%;background:#4ade80;opacity:0.9;pointer-events:none;transform:translate(-50%,-50%);transition:opacity 0.4s;`;
+      flash.style.cssText = `position:absolute;width:20px;height:20px;border-radius:50%;background:rgba(0,113,227,0.6);pointer-events:none;transform:translate(-50%,-50%);transition:opacity 0.4s;`;
       flash.style.left = (e.clientX - r.left) + 'px';
       flash.style.top = (e.clientY - r.top) + 'px';
       wrap.appendChild(flash);
@@ -1213,46 +1114,36 @@
       recorded.pop();
       const list = document.getElementById('lc-cmd-list');
       if (list.lastChild) list.removeChild(list.lastChild);
-      if (!recorded.length) list.innerHTML = '<span style="color:#4b5563;font-size:11px;font-style:italic;">Click the browser to start recording…</span>';
+      if (!recorded.length) list.innerHTML = '<span style="color:#6e6e73;font-size:11px;font-style:italic;">Click the browser to start recording…</span>';
     };
 
     window._lcDone = async function() {
       const doneBtn = document.getElementById('lc-done-btn');
-      if (doneBtn) { doneBtn.disabled = true; doneBtn.textContent = isLiveStep ? 'Saving…' : 'Saving…'; }
-
+      if (doneBtn) { doneBtn.disabled = true; doneBtn.textContent = 'Saving…'; }
       const commands = recorded.map(r => r.cmd).join('\n');
-
       const res = await fetch(`/api/live/${SCENARIO_ID}/done`, {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
         body: JSON.stringify({commands}),
       });
-
       if (!res.ok) {
         if (doneBtn) { doneBtn.disabled = false; doneBtn.textContent = isLiveStep ? 'Step Done →' : 'Retry'; }
         return;
       }
-
       if (isLiveStep) {
-        // ── STAY OPEN — clear recorded list, update header, wait for next step ──
         recorded.length = 0;
         const list = document.getElementById('lc-cmd-list');
-        if (list) list.innerHTML = '<span style="color:#4b5563;font-size:11px;font-style:italic;">Click the browser to start recording…</span>';
-
+        if (list) list.innerHTML = '<span style="color:#6e6e73;font-size:11px;font-style:italic;">Click the browser to start recording…</span>';
         const titleEl = document.getElementById('lc-step-title');
         const actionEl = document.getElementById('lc-step-action');
         if (titleEl) titleEl.textContent = 'Step done — waiting for next…';
         if (actionEl) actionEl.textContent = '';
         if (doneBtn) { doneBtn.disabled = true; doneBtn.textContent = 'Waiting…'; }
-
-        // Keep refreshing the screenshot so user sees live state between steps
-        // Poll for next step (or completion)
         const waitNext = setInterval(async () => {
           try {
             const d = await (await fetch(`/api/run/${SCENARIO_ID}/status`)).json();
             if (d.status === 'done') {
-              clearInterval(waitNext);
-              clearInterval(_refreshTimer);
+              clearInterval(waitNext); clearInterval(_refreshTimer);
               if (titleEl) titleEl.textContent = 'All steps complete ✔';
               if (actionEl) actionEl.textContent = '';
               if (doneBtn) { doneBtn.disabled = true; doneBtn.textContent = 'Done'; }
@@ -1265,24 +1156,20 @@
               if (actionEl) actionEl.textContent = nextAction;
               if (doneBtn) { doneBtn.disabled = false; doneBtn.textContent = 'Step Done →'; }
             } else if (d.status === 'paused' && !d.live_step) {
-              clearInterval(waitNext);
-              clearInterval(_refreshTimer);
+              clearInterval(waitNext); clearInterval(_refreshTimer);
               if (document.getElementById('live-control-overlay')) {
                 document.body.removeChild(document.getElementById('live-control-overlay'));
               }
               _showFailureBar(d);
             } else if (d.status === 'error') {
-              clearInterval(waitNext);
-              clearInterval(_refreshTimer);
+              clearInterval(waitNext); clearInterval(_refreshTimer);
               if (document.getElementById('live-control-overlay')) {
                 document.body.removeChild(document.getElementById('live-control-overlay'));
               }
             }
           } catch(e) {}
         }, 2000);
-
       } else {
-        // Normal (non-live) fix flow — close overlay and resume auto-run
         _startStepPoll();
         document.getElementById('run-label') && (document.getElementById('run-label').textContent = 'Running…');
         _hideFailureBar();
@@ -1300,7 +1187,6 @@
     };
   };
 
-  // ── Step status buttons ─────────────────────────────────────────────────────
   document.querySelectorAll('[data-step]').forEach(card => {
     const stepId = card.dataset.step;
     card.querySelectorAll('.status-btn').forEach(btn => {
