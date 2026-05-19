@@ -31,6 +31,29 @@ RUNS_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 (ROOT / "storage" / "global").mkdir(parents=True, exist_ok=True)
 
+
+def _restore_feedback_from_approved() -> None:
+    """If step_feedback.json is missing, rebuild it from approved.json on startup."""
+    feedback_file = STORAGE_DIR / "step_feedback.json"
+    approved_file = STORAGE_DIR / "approved.json"
+    if feedback_file.exists() or not approved_file.exists():
+        return
+    try:
+        approved = json.loads(approved_file.read_text())
+        merged: dict = {}
+        for _scenario_id, entry in approved.items():
+            commands = entry.get("step_commands", {})
+            if isinstance(commands, dict):
+                merged.setdefault(_scenario_id, {}).update(commands)
+        if merged:
+            feedback_file.write_text(json.dumps(merged, indent=2))
+            print(f"[startup] restored step_feedback.json from approved.json ({len(merged)} scenarios)")
+    except Exception as exc:
+        print(f"[startup] could not restore step_feedback.json: {exc}")
+
+
+_restore_feedback_from_approved()
+
 # In-memory run state: scenario_id -> {status, run_id, passed?, error?}
 _ACTIVE_RUNS: dict[str, dict] = {}
 
