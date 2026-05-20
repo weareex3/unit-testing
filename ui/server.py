@@ -23,7 +23,9 @@ from engine.runner import run_scenario  # noqa: E402
 CLIENT_ID = os.getenv("CLIENT_ID", "default")
 
 SCRIPTS_DIR = ROOT / "scripts"
-RUNS_DIR = ROOT / "runs" / CLIENT_ID
+# Use /data (Railway persistent volume) when available, else local runs/
+_DATA_ROOT = Path("/data") if Path("/data").exists() else ROOT
+RUNS_DIR = _DATA_ROOT / "runs" / CLIENT_ID
 STORAGE_DIR = ROOT / "storage" / CLIENT_ID
 STATUS_FILE = STORAGE_DIR / "step_status.json"
 
