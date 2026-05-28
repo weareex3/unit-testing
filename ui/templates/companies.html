@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Companies - EX3 TestOps{% endblock %}
+
+{% block content %}
+<style>
+  .co-grid { display:grid; grid-template-columns: minmax(0,1fr) 360px; gap:18px; align-items:start; }
+  .co-table { overflow:hidden; }
+  .co-row { display:grid; grid-template-columns: minmax(0,1fr) 140px 90px; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .co-row:last-child { border-bottom:0; }
+  .co-key { font-family:"SF Mono", Consolas, monospace; font-size:12px; color:var(--muted); }
+  .form-card { padding:20px; }
+  .form-card label { display:block; margin:12px 0 6px; color:var(--muted); font-size:12px; font-weight:750; }
+  @media(max-width: 900px){ .co-grid{grid-template-columns:1fr;} }
+</style>
+
+<div class="topbar">
+  <nav class="breadcrumb">
+    <a href="/">Workspace</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current">Companies</span>
+  </nav>
+</div>
+
+<div class="content">
+  <div class="content-inner">
+    <div style="margin-bottom:24px;">
+      <div class="page-kicker">Clients</div>
+      <h1 class="page-title">Companies.</h1>
+      <p class="page-copy">Each company is a client of the workspace. Users are assigned to a company, and their uploaded UAT scripts are filed under it in the Vault.</p>
+    </div>
+
+    <div class="co-grid">
+      <section class="surface co-table">
+        {% for co in companies %}
+        <div class="co-row">
+          <div>
+            <div style="font-weight:800;">{{ co.name }}</div>
+            <div class="co-key">{{ co.key }}</div>
+          </div>
+          <div style="font-size:12px;color:var(--muted);">{{ co.created_by or "—" }}</div>
+          {% if co.key != "internal" %}
+          <form method="post" action="/api/companies/delete">
+            <input type="hidden" name="key" value="{{ co.key }}" />
+            <button class="btn btn-danger" type="submit">Remove</button>
+          </form>
+          {% else %}
+          <span class="role-pill" style="padding:4px 9px;border-radius:999px;background:rgba(185,149,79,.12);border:1px solid rgba(185,149,79,.22);color:#79591f;font-size:11px;font-weight:800;">Default</span>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </section>
+
+      <form class="surface form-card" method="post" action="/api/companies">
+        <div class="section-label">Add company</div>
+        <label>Company name</label>
+        <input class="input" name="name" required placeholder="e.g. Veritas Group" />
+        <button class="btn btn-primary" style="width:100%;margin-top:16px;" type="submit">Create company</button>
+        <p style="font-size:12px;color:var(--muted);margin-top:12px;">A short key (used for folders) is generated from the name automatically.</p>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -41,6 +41,10 @@ USERS_FILE = STORAGE_DIR / "users.json"
 WEBAUTHN_DIR = _DATA_ROOT / "auth" / CLIENT_ID
 WEBAUTHN_CRED_FILE = WEBAUTHN_DIR / "webauthn_credentials.json"
 
+# Companies (clients) registry — deployment-wide, persisted on /data. Each user is
+# assigned a company; uploaded scripts are filed under their company in the Vault.
+COMPANIES_FILE = _DATA_ROOT / "companies.json"
+
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADED_SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
@@ -584,7 +588,7 @@ def _configured_users() -> list[dict]:
             pass
     users.extend(_load_users())
     if TESTOPS_PIN.strip():
-        users.append({"username": "louie", "password": TESTOPS_PIN, "role": "owner", "name": "Louie"})
+        users.append({"username": "louie", "password": TESTOPS_PIN, "role": "owner", "name": "Louie", "company": "internal"})
 
     deduped: dict[str, dict] = {}
     for user in users:
@@ -614,6 +618,7 @@ def _public_user(user: dict) -> dict:
         "username": user.get("username", ""),
         "name": user.get("name") or user.get("username", ""),
         "role": user.get("role", "viewer"),
+        "company": user.get("company", "internal"),
     }
 
 
@@ -1045,6 +1050,7 @@ def users_page(request: Request):
             "current_user": _current_user(request),
             "users": [_public_user(u) for u in _configured_users()],
             "roles": list(ROLE_LEVELS.keys()),
+            "companies": _load_companies(),
             "active": "users",
         },
     )
@@ -1061,12 +1067,16 @@ def save_user(
     name: str = Form(""),
     role: str = Form("viewer"),
     password: str = Form(""),
+    company: str = Form("internal"),
 ):
     username = username.strip()
     if not username:
         raise HTTPException(400, "Username required")
     if role not in ROLE_LEVELS:
         raise HTTPException(400, "Invalid role")
+    company = (company or "internal").strip().lower()
+    if company not in _company_keys():
+        company = "internal"
 
     users = _load_users()
     existing = next((u for u in users if str(u.get("username", "")).lower() == username.lower()), None)
@@ -1077,6 +1087,7 @@ def save_user(
         users.append(existing)
     existing["name"] = name.strip() or username
     existing["role"] = role
+    existing["company"] = company
     if password:
         existing["password"] = _hash_password(password)
     _save_users(users)
@@ -1088,6 +1099,87 @@ def delete_user(username: str = Form(...)):
     users = [u for u in _load_users() if str(u.get("username", "")).lower() != username.strip().lower()]
     _save_users(users)
     return RedirectResponse("/admin/users", status_code=303)
+
+
+# ── Companies / clients ─────────────────────────────────────────────────────
+def _slugify_company(name: str) -> str:
+    import re
+    slug = re.sub(r"[^a-z0-9]+", "_", name.strip().lower()).strip("_")
+    return slug or "client"
+
+
+def _save_companies(companies: list[dict]) -> None:
+    COMPANIES_FILE.parent.mkdir(parents=True, exist_ok=True)
+    COMPANIES_FILE.write_text(json.dumps(companies, indent=2))
+
+
+def _load_companies() -> list[dict]:
+    data: list[dict] = []
+    if COMPANIES_FILE.exists():
+        try:
+            raw = json.loads(COMPANIES_FILE.read_text())
+            if isinstance(raw, list):
+                data = [c for c in raw if isinstance(c, dict) and c.get("key")]
+        except Exception:
+            data = []
+    if not data:
+        data = [{"key": "internal", "name": "Internal", "created_at": _utc_now(), "created_by": "system"}]
+        try:
+            _save_companies(data)
+        except Exception:
+            pass
+    return data
+
+
+def _company_keys() -> list[str]:
+    return [c["key"] for c in _load_companies()]
+
+
+@app.get("/admin/companies", response_class=HTMLResponse)
+def companies_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="companies.html",
+        context={
+            "stats": _stats(),
+            "client_id": CLIENT_ID,
+            "current_user": _current_user(request),
+            "companies": _load_companies(),
+            "active": "companies",
+        },
+    )
+
+
+@app.get("/api/companies")
+def get_companies():
+    return JSONResponse({"companies": _load_companies()})
+
+
+@app.post("/api/companies")
+def create_company(request: Request, name: str = Form(...)):
+    name = name.strip()
+    if not name:
+        raise HTTPException(400, "Company name required")
+    key = _slugify_company(name)
+    companies = _load_companies()
+    if not any(c["key"] == key for c in companies):
+        companies.append({
+            "key": key,
+            "name": name,
+            "created_at": _utc_now(),
+            "created_by": _current_user(request).get("username", "owner"),
+        })
+        _save_companies(companies)
+    return RedirectResponse("/admin/companies", status_code=303)
+
+
+@app.post("/api/companies/delete")
+def delete_company(key: str = Form(...)):
+    key = key.strip().lower()
+    if key == "internal":
+        raise HTTPException(400, "The internal company cannot be removed")
+    _save_companies([c for c in _load_companies() if c["key"] != key])
+    return RedirectResponse("/admin/companies", status_code=303)
 
 
 def _safe_upload_name(filename: str) -> str:

@@ -5,7 +5,8 @@
 <style>
   .users-grid { display:grid; grid-template-columns: minmax(0,1fr) 360px; gap:18px; align-items:start; }
   .user-table { overflow:hidden; }
-  .user-row { display:grid; grid-template-columns: minmax(0,1fr) 120px 90px; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .user-row { display:grid; grid-template-columns: minmax(0,1fr) 130px 110px 90px; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .co-pill { width:max-content; padding:4px 9px; border-radius:999px; background:rgba(35,103,200,.08); border:1px solid rgba(35,103,200,.16); color:#2367c8; font-size:11px; font-weight:750; }
   .user-row:last-child { border-bottom:0; }
   .role-pill { width:max-content; padding:4px 9px; border-radius:999px; background:rgba(185,149,79,.12); border:1px solid rgba(185,149,79,.22); color:#79591f; font-size:11px; font-weight:800; text-transform:capitalize; }
   .form-card { padding:20px; }
@@ -38,6 +39,7 @@
             <div style="font-weight:800;">{{ user.name }}</div>
             <div style="font-size:12px;color:var(--muted);">{{ user.username }}</div>
           </div>
+          <span class="co-pill">{{ user.company or "internal" }}</span>
           <span class="role-pill">{{ user.role }}</span>
           {% if user.username != "louie" %}
           <form method="post" action="/api/users/delete">
@@ -61,6 +63,12 @@
         <select name="role">
           {% for role in roles %}
           <option value="{{ role }}">{{ role|capitalize }}</option>
+          {% endfor %}
+        </select>
+        <label>Company</label>
+        <select name="company">
+          {% for co in companies %}
+          <option value="{{ co.key }}">{{ co.name }}</option>
           {% endfor %}
         </select>
         <button class="btn btn-primary" style="width:100%;margin-top:16px;" type="submit">Save user</button>
