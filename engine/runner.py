@@ -87,9 +87,10 @@ def run_scenario(
     check_pause_fn=None,
     step_confirm_callback=None,
     live_mode: bool = False,
+    run_id_override: str | None = None,
 ) -> ScenarioResult:
     """Login to SF, run all (or first *max_steps*) steps, record video."""
-    run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    run_id = run_id_override or datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
     base = Path(runs_root) if runs_root else Path("runs")
     runs_dir = base / run_id
     runs_dir.mkdir(parents=True, exist_ok=True)

@@ -1,7 +1,11 @@
 """EX3 TestOps — FastAPI dashboard."""
 
+import base64
+import hashlib
+import hmac
 import json
 import os
+import secrets
 import sys
 import threading
 from pathlib import Path
@@ -9,8 +13,8 @@ from collections import defaultdict
 from datetime import datetime
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, Request, Form, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi import FastAPI, Request, Form, HTTPException, UploadFile, File
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
@@ -26,10 +30,13 @@ SCRIPTS_DIR = ROOT / "scripts"
 # Use /data (Railway persistent volume) when available, else local runs/
 _DATA_ROOT = Path("/data") if Path("/data").exists() else ROOT
 RUNS_DIR = _DATA_ROOT / "runs" / CLIENT_ID
+UPLOADED_SCRIPTS_DIR = _DATA_ROOT / "scripts" / CLIENT_ID
 STORAGE_DIR = ROOT / "storage" / CLIENT_ID
 STATUS_FILE = STORAGE_DIR / "step_status.json"
+USERS_FILE = STORAGE_DIR / "users.json"
 
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
+UPLOADED_SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 (ROOT / "storage" / "global").mkdir(parents=True, exist_ok=True)
 
@@ -116,6 +123,7 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
     shot_url = f"/runs/{run_id}/{Path(screenshot_path).name}" if screenshot_path else None
     # Don't humanise live_step messages — they're step descriptions, not errors
     human_error = error_message if live_step else _humanise_error(error_message)
+    run_user = _ACTIVE_RUNS.get(scenario_id, {}).get("user", {})
     _ACTIVE_RUNS[scenario_id].update({
         "status": "paused",
         "paused_step": step_id,
@@ -124,6 +132,16 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
         "raw_error": error_message,
         "live_step": live_step,
     })
+    _append_audit(
+        run_id,
+        "run_paused",
+        "Run paused for human input" if not live_step else "Step handed to live control",
+        scenario_id=scenario_id,
+        user=run_user,
+        step_id=step_id,
+        status="paused",
+        details={"error": human_error, "raw_error": error_message, "screenshot_url": shot_url, "live_step": live_step},
+    )
 
     if page is not None:
         # Prepare shared paths / queues
@@ -190,6 +208,16 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
     fix = _PAUSE_FIX.pop(scenario_id, None)
     _PAUSE_EVENTS.pop(scenario_id, None)
     _ACTIVE_RUNS[scenario_id]["status"] = "running"
+    _append_audit(
+        run_id,
+        "run_resumed",
+        "Run resumed",
+        scenario_id=scenario_id,
+        user=run_user,
+        step_id=step_id,
+        status="running",
+        details={"has_fix": bool(fix), "commands_saved": bool(fix and fix.get("commands"))},
+    )
     return fix
 
 
@@ -200,11 +228,22 @@ def _confirm_callback(scenario_id: str, step_id: str, screenshot_path: str, run_
     Returns True if confirmed (move on), False if user wants to redo.
     """
     shot_url = f"/runs/{run_id}/{Path(screenshot_path).name}" if screenshot_path else None
+    run_user = _ACTIVE_RUNS.get(scenario_id, {}).get("user", {})
     _ACTIVE_RUNS[scenario_id].update({
         "status": "confirming",
         "confirming_step": step_id,
         "screenshot_url": shot_url,
     })
+    _append_audit(
+        run_id,
+        "step_confirmation_required",
+        "Waiting for step confirmation",
+        scenario_id=scenario_id,
+        user=run_user,
+        step_id=step_id,
+        status="confirming",
+        details={"screenshot_url": shot_url},
+    )
 
     evt = threading.Event()
     _CONFIRM_EVENTS[scenario_id] = evt
@@ -345,9 +384,459 @@ def _save_statuses(data: dict) -> None:
 def _step_status(scenario_id: str, step_id: str) -> str:
     return _load_statuses().get(scenario_id, {}).get(step_id, "not_tested")
 
+
+def _utc_now() -> str:
+    return datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
+
+
+def _audit_path(run_id: str) -> Path:
+    path = RUNS_DIR / run_id / "audit.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _load_audit(run_id: str) -> list[dict]:
+    path = _audit_path(run_id)
+    if path.exists():
+        try:
+            data = json.loads(path.read_text())
+            if isinstance(data, list):
+                return [e for e in data if isinstance(e, dict)]
+        except Exception:
+            return []
+    return []
+
+
+def _append_audit(
+    run_id: str,
+    event: str,
+    title: str,
+    *,
+    scenario_id: str = "",
+    user: dict | None = None,
+    step_id: str = "",
+    status: str = "",
+    details: dict | None = None,
+) -> None:
+    if not run_id:
+        return
+    try:
+        events = _load_audit(run_id)
+        events.append({
+            "ts": _utc_now(),
+            "event": event,
+            "title": title,
+            "scenario_id": scenario_id,
+            "step_id": step_id,
+            "status": status,
+            "user": {
+                "username": (user or {}).get("username", "system"),
+                "role": (user or {}).get("role", ""),
+            },
+            "details": details or {},
+        })
+        _audit_path(run_id).write_text(json.dumps(events, indent=2))
+    except Exception as exc:
+        print(f"[audit] write failed: {exc}")
+
+
+def _scenario_lookup() -> dict[str, object]:
+    try:
+        return {s.scenario_id: s for s in _load_scenarios()}
+    except Exception:
+        return {}
+
+
+def _step_log_for_run(run_id: str) -> dict:
+    for f in RUNS_DIR.glob("*_last_run.json"):
+        try:
+            data = json.loads(f.read_text())
+            if data.get("run_id") == run_id:
+                return data
+        except Exception:
+            continue
+    return {}
+
+
+def _fmt_duration(start: str, end: str) -> str:
+    try:
+        a = datetime.fromisoformat(start.replace("Z", ""))
+        b = datetime.fromisoformat(end.replace("Z", ""))
+        seconds = max(0, int((b - a).total_seconds()))
+        minutes, sec = divmod(seconds, 60)
+        return f"{minutes}m {sec}s" if minutes else f"{sec}s"
+    except Exception:
+        return ""
+
+
+def _run_record(run_dir: Path, scenarios: dict[str, object] | None = None) -> dict:
+    scenarios = scenarios or _scenario_lookup()
+    run_id = run_dir.name
+    audit = _load_audit(run_id)
+    log = _step_log_for_run(run_id)
+    scenario_id = ""
+    for event in audit:
+        scenario_id = event.get("scenario_id") or scenario_id
+        if scenario_id:
+            break
+    if not scenario_id:
+        for sid in scenarios:
+            if list(run_dir.glob(f"{sid}-*.png")):
+                scenario_id = sid
+                break
+    scenario = scenarios.get(scenario_id)
+    steps = log.get("steps", []) if isinstance(log.get("steps"), list) else []
+    failed = [s for s in steps if not s.get("passed")]
+    videos = sorted(run_dir.glob("*.webm"))
+    screenshots = sorted(run_dir.glob("*.png"))
+    terminal_events = [e for e in audit if e.get("event") in ("run_completed", "run_failed", "run_cancelled")]
+    status = (terminal_events[-1].get("status") if terminal_events else log.get("status") or "recorded")
+    if status == "done" and failed:
+        status = "failed"
+    elif status == "done":
+        status = "passed"
+    started = audit[0].get("ts") if audit else datetime.utcfromtimestamp(run_dir.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
+    ended = (terminal_events[-1].get("ts") if terminal_events else (audit[-1].get("ts") if audit else started))
+    return {
+        "id": run_id,
+        "scenario_id": scenario_id,
+        "scenario_name": getattr(scenario, "name", scenario_id or "Unknown scenario"),
+        "module": getattr(scenario, "module", ""),
+        "role": getattr(scenario, "role", ""),
+        "status": status,
+        "started_at": started,
+        "ended_at": ended,
+        "duration": _fmt_duration(started, ended),
+        "user": (audit[0].get("user", {}) if audit else {"username": "unknown", "role": ""}),
+        "steps_total": len(getattr(scenario, "steps", []) or steps),
+        "steps_logged": len(steps),
+        "steps_failed": len(failed),
+        "screenshots": len(screenshots),
+        "video_url": f"/runs/{run_id}/{videos[0].name}" if videos else "",
+        "audit_count": len(audit),
+    }
+
+
+def _run_records() -> list[dict]:
+    scenarios = _scenario_lookup()
+    records = []
+    if RUNS_DIR.exists():
+        for run_dir in sorted([p for p in RUNS_DIR.iterdir() if p.is_dir()], reverse=True):
+            records.append(_run_record(run_dir, scenarios))
+    return records
+
+
+def _latest_run_id_for_scenario(scenario_id: str) -> str:
+    active = _ACTIVE_RUNS.get(scenario_id, {})
+    if active.get("run_id"):
+        return str(active["run_id"])
+    for record in _run_records():
+        if record.get("scenario_id") == scenario_id:
+            return record["id"]
+    return ""
+
 app = FastAPI(title="EX3 TestOps")
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 app.mount("/runs", StaticFiles(directory=str(RUNS_DIR)), name="runs")
+
+AUTH_COOKIE = "ex3_testops_auth"
+AUTH_TOKEN = os.getenv("TESTOPS_AUTH_TOKEN", "").strip()
+TESTOPS_PIN = os.getenv("TESTOPS_PIN", "")
+TESTOPS_USERS = os.getenv("TESTOPS_USERS", "")
+ROLE_LEVELS = {"viewer": 0, "tester": 10, "lead": 20, "admin": 30, "owner": 40}
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+# The auth cookie is signed with AUTH_TOKEN (HMAC). It is the only thing stopping
+# an attacker from forging an owner-role session, so a guessable value is a full
+# auth bypass. Reject known-weak secrets outright.
+_WEAK_AUTH_TOKENS = {"", "ok", "secret", "changeme", "change-me", "token", "default", "password"}
+
+
+def _auth_enabled() -> bool:
+    return bool(TESTOPS_PIN.strip() or TESTOPS_USERS.strip())
+
+
+# Fail closed: if logins are configured but the signing secret is missing or weak,
+# refuse to boot rather than silently run with a forgeable secret.
+if _auth_enabled() and AUTH_TOKEN.lower() in _WEAK_AUTH_TOKENS:
+    raise RuntimeError(
+        "TESTOPS_AUTH_TOKEN is unset or too weak. The login cookie is signed with "
+        "this secret; a guessable value lets anyone forge an owner session. Set a "
+        "strong random value and redeploy, e.g.  TESTOPS_AUTH_TOKEN=$(openssl rand -hex 32)"
+    )
+
+
+def _configured_users() -> list[dict]:
+    users: list[dict] = []
+    if TESTOPS_USERS.strip():
+        try:
+            env_users = json.loads(TESTOPS_USERS)
+            if isinstance(env_users, list):
+                users.extend([u for u in env_users if isinstance(u, dict) and u.get("username")])
+        except Exception:
+            pass
+    users.extend(_load_users())
+    if TESTOPS_PIN.strip():
+        users.append({"username": "louie", "password": TESTOPS_PIN, "role": "owner", "name": "Louie"})
+
+    deduped: dict[str, dict] = {}
+    for user in users:
+        key = str(user.get("username", "")).strip().lower()
+        if key and key not in deduped:
+            deduped[key] = user
+    return list(deduped.values())
+
+
+def _load_users() -> list[dict]:
+    if USERS_FILE.exists():
+        try:
+            data = json.loads(USERS_FILE.read_text())
+            if isinstance(data, list):
+                return [u for u in data if isinstance(u, dict) and u.get("username")]
+        except Exception:
+            return []
+    return []
+
+
+def _save_users(users: list[dict]) -> None:
+    USERS_FILE.write_text(json.dumps(users, indent=2))
+
+
+def _public_user(user: dict) -> dict:
+    return {
+        "username": user.get("username", ""),
+        "name": user.get("name") or user.get("username", ""),
+        "role": user.get("role", "viewer"),
+    }
+
+
+def _hash_password(password: str) -> str:
+    return "sha256:" + hashlib.sha256(password.encode("utf-8")).hexdigest()
+
+
+def _password_ok(candidate: str, stored: str) -> bool:
+    if stored.startswith("sha256:"):
+        digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
+        return secrets.compare_digest(stored.removeprefix("sha256:"), digest)
+    return secrets.compare_digest(candidate, stored)
+
+
+def _sign_auth(username: str, role: str) -> str:
+    payload = f"{username}|{role}"
+    sig = hmac.new(AUTH_TOKEN.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(f"{payload}|{sig}".encode("utf-8")).decode("ascii")
+
+
+def _read_auth_cookie(request: Request) -> dict | None:
+    raw = request.cookies.get(AUTH_COOKIE, "")
+    if not raw:
+        return None
+    try:
+        decoded = base64.urlsafe_b64decode(raw.encode("ascii")).decode("utf-8")
+        username, role, sig = decoded.split("|", 2)
+        expected = hmac.new(AUTH_TOKEN.encode("utf-8"), f"{username}|{role}".encode("utf-8"), hashlib.sha256).hexdigest()
+        if secrets.compare_digest(sig, expected):
+            return {"username": username, "role": role if role in ROLE_LEVELS else "viewer"}
+    except Exception:
+        return None
+    return None
+
+
+def _current_user(request: Request) -> dict:
+    return _read_auth_cookie(request) or {"username": "guest", "role": "viewer"}
+
+
+def _is_authenticated(request: Request) -> bool:
+    return _read_auth_cookie(request) is not None
+
+
+def _role_at_least(role: str, minimum: str) -> bool:
+    return ROLE_LEVELS.get(role, -1) >= ROLE_LEVELS.get(minimum, 999)
+
+
+def _minimum_role_for_write(path: str, method: str) -> str:
+    if path.startswith("/admin") or path.startswith("/api/users"):
+        return "admin"
+    if path.startswith("/api/scripts") or path.startswith("/scripts/upload"):
+        return "lead"
+    if method in SAFE_METHODS:
+        return "viewer"
+    if path.startswith("/api/scenario/") or path.startswith("/api/library"):
+        return "lead"
+    if (
+        path.startswith("/api/run/")
+        or path.startswith("/api/live/")
+        or path.startswith("/api/step-")
+        or path.startswith("/api/expected-override")
+        or path.startswith("/api/interpret-fix")
+    ):
+        return "tester"
+    return "admin"
+
+
+@app.middleware("http")
+async def require_pin(request: Request, call_next):
+    if not _auth_enabled():
+        return await call_next(request)
+
+    path = request.url.path
+    if path in ("/login", "/logout") or path.startswith("/static"):
+        return await call_next(request)
+
+    user = _read_auth_cookie(request)
+    if user:
+        minimum_role = _minimum_role_for_write(path, request.method)
+        if _role_at_least(user["role"], minimum_role):
+            return await call_next(request)
+        if path.startswith("/api/"):
+            return JSONResponse({"ok": False, "error": f"{minimum_role} role required"}, status_code=403)
+        return HTMLResponse("Permission denied", status_code=403)
+
+    if path.startswith("/api/"):
+        return JSONResponse({"ok": False, "error": "Authentication required"}, status_code=401)
+    return RedirectResponse("/login", status_code=303)
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page(request: Request):
+    error = request.query_params.get("error")
+    return HTMLResponse(f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Login - EX3 TestOps</title>
+  <style>
+    * {{ box-sizing: border-box; }}
+    body {{ margin: 0; min-height: 100vh; display: grid; place-items: center; background: radial-gradient(circle at 18% 12%, rgba(188,153,84,.18), transparent 30%), linear-gradient(135deg, #090908, #161513 58%, #0b0b0c); color: #f7f3ea; font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }}
+    form {{ width: min(420px, calc(100vw - 32px)); background: rgba(22,21,19,.86); border: 1px solid rgba(226,207,159,.18); border-radius: 18px; padding: 32px; box-shadow: 0 28px 100px rgba(0,0,0,.42); backdrop-filter: blur(22px); }}
+    .mark {{ width: 44px; height: 44px; border-radius: 12px; display:grid; place-items:center; margin-bottom: 22px; background: linear-gradient(135deg, #d8ba72, #91713e); color:#0b0b0c; font-weight:800; }}
+    h1 {{ margin: 0 0 6px; font-size: 24px; letter-spacing: 0; }}
+    p {{ margin: 0 0 22px; color: #bcb5a8; font-size: 13px; }}
+    label {{ display:block; color:#d8d1c3; font-size:12px; font-weight:650; margin: 12px 0 6px; }}
+    input {{ width: 100%; border: 1px solid rgba(226,207,159,.16); background: rgba(5,5,5,.42); color: #fff; border-radius: 11px; padding: 12px 13px; font-size: 15px; outline: none; }}
+    input:focus {{ border-color: #d8ba72; box-shadow: 0 0 0 3px rgba(216,186,114,.15); }}
+    button {{ width: 100%; margin-top: 16px; border: 0; border-radius: 11px; background: linear-gradient(135deg, #dfc27b, #a88648); color: #111; padding: 12px; font-weight: 800; cursor: pointer; }}
+    .err {{ color: #ff9b8f; margin-top: 12px; font-size: 13px; }}
+  </style>
+</head>
+<body>
+  <form method="post" action="/login">
+    <div class="mark">EX3</div>
+    <h1>Welcome back</h1>
+    <p>Sign in to the private TestOps command centre.</p>
+    <label for="username">User</label>
+    <input id="username" name="username" type="text" value="louie" autocomplete="username" autofocus />
+    <label for="password">Password</label>
+    <input id="password" name="password" type="password" inputmode="numeric" autocomplete="current-password" />
+    <button type="submit">Enter workspace</button>
+    {('<div class="err">Incorrect username or password</div>' if error else '')}
+  </form>
+</body>
+</html>""")
+
+
+@app.post("/login")
+def login(username: str = Form("louie"), password: str = Form("")):
+    for user in _configured_users():
+        if (
+            secrets.compare_digest(username.strip().lower(), str(user.get("username", "")).strip().lower())
+            and _password_ok(password, str(user.get("password", "")))
+        ):
+            role = str(user.get("role", "viewer")).lower()
+            response = RedirectResponse("/", status_code=303)
+            response.set_cookie(AUTH_COOKIE, _sign_auth(str(user["username"]), role), httponly=True, secure=True, samesite="lax")
+            return response
+    return RedirectResponse("/login?error=1", status_code=303)
+
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse("/login", status_code=303)
+    response.delete_cookie(AUTH_COOKIE)
+    return response
+
+
+@app.get("/admin/users", response_class=HTMLResponse)
+def users_page(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="users.html",
+        context={
+            "stats": _stats(),
+            "client_id": CLIENT_ID,
+            "current_user": _current_user(request),
+            "users": [_public_user(u) for u in _configured_users()],
+            "roles": list(ROLE_LEVELS.keys()),
+            "active": "users",
+        },
+    )
+
+
+@app.get("/api/users")
+def get_users():
+    return JSONResponse({"users": [_public_user(u) for u in _configured_users()], "roles": list(ROLE_LEVELS.keys())})
+
+
+@app.post("/api/users")
+def save_user(
+    username: str = Form(...),
+    name: str = Form(""),
+    role: str = Form("viewer"),
+    password: str = Form(""),
+):
+    username = username.strip()
+    if not username:
+        raise HTTPException(400, "Username required")
+    if role not in ROLE_LEVELS:
+        raise HTTPException(400, "Invalid role")
+
+    users = _load_users()
+    existing = next((u for u in users if str(u.get("username", "")).lower() == username.lower()), None)
+    if existing is None:
+        if not password:
+            raise HTTPException(400, "Password required for new users")
+        existing = {"username": username}
+        users.append(existing)
+    existing["name"] = name.strip() or username
+    existing["role"] = role
+    if password:
+        existing["password"] = _hash_password(password)
+    _save_users(users)
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+@app.post("/api/users/delete")
+def delete_user(username: str = Form(...)):
+    users = [u for u in _load_users() if str(u.get("username", "")).lower() != username.strip().lower()]
+    _save_users(users)
+    return RedirectResponse("/admin/users", status_code=303)
+
+
+def _safe_upload_name(filename: str) -> str:
+    import re
+    stem = Path(filename).stem
+    stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", stem).strip("._") or "uploaded_script"
+    return f"{stem}.xlsx"
+
+
+@app.post("/scripts/upload")
+async def upload_script(file: UploadFile = File(...)):
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(400, "Upload an .xlsx workbook")
+    UPLOADED_SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
+    target_name = _safe_upload_name(file.filename)
+    target = UPLOADED_SCRIPTS_DIR / target_name
+    if target.exists():
+        target = UPLOADED_SCRIPTS_DIR / f"{target.stem}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.xlsx"
+    data = await file.read()
+    target.write_bytes(data)
+    try:
+        parse_workbook(str(target))
+    except Exception as exc:
+        target.unlink(missing_ok=True)
+        raise HTTPException(400, f"Workbook could not be parsed: {exc}")
+    return RedirectResponse(f"/?script={target.name}", status_code=303)
 
 
 CATEGORY_RULES = [
@@ -357,8 +846,30 @@ CATEGORY_RULES = [
 ]
 
 
-def _load_scenarios():
-    workbooks = sorted(SCRIPTS_DIR.glob("EX3_*_Workbook*.xlsx"))
+def _workbooks() -> list[dict]:
+    books = []
+    workbook_paths = sorted({*SCRIPTS_DIR.glob("*.xlsx"), *UPLOADED_SCRIPTS_DIR.glob("*.xlsx")}, key=lambda p: p.name.lower())
+    for path in workbook_paths:
+        try:
+            scenarios = parse_workbook(str(path))
+            step_count = sum(len(s.steps) for s in scenarios)
+        except Exception:
+            scenarios = []
+            step_count = 0
+        books.append({
+            "key": path.name,
+            "name": path.stem.replace("_", " ").replace("-", " "),
+            "scenario_count": len(scenarios),
+            "step_count": step_count,
+        })
+    return books
+
+
+def _load_scenarios(workbook: str | None = None):
+    workbooks = sorted({*SCRIPTS_DIR.glob("*.xlsx"), *UPLOADED_SCRIPTS_DIR.glob("*.xlsx")}, key=lambda p: p.name.lower())
+    if workbook:
+        safe_name = Path(workbook).name
+        workbooks = [p for p in workbooks if p.name == safe_name]
     if not workbooks:
         return []
     scenarios = []
@@ -401,8 +912,8 @@ def _role_color(role: str) -> str:
     return palette.get(role, "slate")
 
 
-def _grouped_scenarios():
-    scenarios = _load_scenarios()
+def _grouped_scenarios(workbook: str | None = None):
+    scenarios = _load_scenarios(workbook)
     groups = defaultdict(list)
     for s in scenarios:
         for label, predicate in CATEGORY_RULES:
@@ -429,8 +940,8 @@ def _grouped_scenarios():
     ]
 
 
-def _stats():
-    scenarios = _load_scenarios()
+def _stats(workbook: str | None = None):
+    scenarios = _load_scenarios(workbook)
     statuses = [
         _scenario_status(s.scenario_id, total_steps=len(s.steps))["status"]
         for s in scenarios
@@ -445,14 +956,19 @@ def _stats():
 
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
+    selected_workbook = request.query_params.get("script") or None
     return templates.TemplateResponse(
         request=request,
         name="index.html",
         context={
-            "groups": _grouped_scenarios(),
-            "stats": _stats(),
+            "groups": _grouped_scenarios(selected_workbook),
+            "stats": _stats(selected_workbook),
+            "all_stats": _stats(),
+            "workbooks": _workbooks(),
+            "selected_workbook": selected_workbook,
             "active": "all",
             "client_id": CLIENT_ID,
+            "current_user": _current_user(request),
         },
     )
 
@@ -526,6 +1042,80 @@ def scenario_detail(request: Request, scenario_id: str):
             "step_screenshots": step_screenshots,
             "approved": approved,
             "client_id": CLIENT_ID,
+            "current_user": _current_user(request),
+        },
+    )
+
+
+@app.get("/history", response_class=HTMLResponse)
+def run_history(request: Request):
+    records = _run_records()
+    return templates.TemplateResponse(
+        request=request,
+        name="history.html",
+        context={
+            "runs": records,
+            "stats": _stats(),
+            "client_id": CLIENT_ID,
+            "current_user": _current_user(request),
+            "active": "history",
+            "summary": {
+                "total": len(records),
+                "passed": sum(1 for r in records if r["status"] == "passed"),
+                "failed": sum(1 for r in records if r["status"] in ("failed", "error")),
+                "with_video": sum(1 for r in records if r["video_url"]),
+            },
+        },
+    )
+
+
+@app.get("/history/{run_id}", response_class=HTMLResponse)
+def run_audit_detail(request: Request, run_id: str):
+    run_dir = RUNS_DIR / run_id
+    if not run_dir.exists() or not run_dir.is_dir():
+        return HTMLResponse("Run not found", status_code=404)
+    scenarios = _scenario_lookup()
+    record = _run_record(run_dir, scenarios)
+    audit = _load_audit(run_id)
+    step_log = _step_log_for_run(run_id)
+    if not audit:
+        audit = [{
+            "ts": record["started_at"],
+            "event": "evidence_imported",
+            "title": "Historical run evidence imported",
+            "scenario_id": record["scenario_id"],
+            "step_id": "",
+            "status": record["status"],
+            "user": record["user"],
+            "details": {"note": "This run happened before audit tracking was enabled.", "screenshots": record["screenshots"], "video_url": record["video_url"]},
+        }]
+        for step in (step_log.get("steps", []) if isinstance(step_log.get("steps"), list) else []):
+            audit.append({
+                "ts": record["started_at"],
+                "event": "historical_step",
+                "title": "Historical step result",
+                "scenario_id": record["scenario_id"],
+                "step_id": step.get("step_id", ""),
+                "status": "pass" if step.get("passed") else "fail",
+                "user": record["user"],
+                "details": {"error": step.get("error", ""), "screenshot_url": step.get("screenshot_url", "")},
+            })
+    screenshots = [
+        {"name": p.name, "url": f"/runs/{run_id}/{p.name}"}
+        for p in sorted(run_dir.glob("*.png"))
+    ]
+    return templates.TemplateResponse(
+        request=request,
+        name="audit.html",
+        context={
+            "run": record,
+            "audit": audit,
+            "step_log": step_log,
+            "screenshots": screenshots,
+            "stats": _stats(),
+            "client_id": CLIENT_ID,
+            "current_user": _current_user(request),
+            "active": "history",
         },
     )
 
@@ -600,8 +1190,23 @@ async def trigger_run(scenario_id: str, request: Request):
         supervised = False
         live_mode = False
 
+    user = _current_user(request)
     run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    _ACTIVE_RUNS[scenario_id] = {"status": "running", "run_id": run_id, "supervised": supervised, "live_mode": live_mode}
+    _ACTIVE_RUNS[scenario_id] = {"status": "running", "run_id": run_id, "supervised": supervised, "live_mode": live_mode, "user": user}
+    _append_audit(
+        run_id,
+        "run_started",
+        "Run started",
+        scenario_id=scenario_id,
+        user=user,
+        status="running",
+        details={
+            "mode": "step-by-step" if supervised else ("live-control" if live_mode else "automated"),
+            "answers": pre_answers,
+            "library_variables_used": bool(lib_vars),
+            "step_count": len(scenario.steps),
+        },
+    )
 
     # Live step log written to disk so it survives page reload
     step_log_file = RUNS_DIR / f"{scenario_id}_last_run.json"
@@ -627,6 +1232,16 @@ async def trigger_run(scenario_id: str, request: Request):
                     "screenshot_url": screenshot_url or "",
                 })
                 _write_step_log(steps_log, "running")
+                _append_audit(
+                    run_id,
+                    "step_completed" if passed else "step_failed",
+                    "Step passed" if passed else "Step failed",
+                    scenario_id=scenario_id,
+                    user=user,
+                    step_id=step_id,
+                    status="pass" if passed else "fail",
+                    details={"error": error or "", "screenshot_url": screenshot_url or ""},
+                )
 
             def _check_pause(sid):
                 return _FORCE_PAUSE.pop(sid, False)
@@ -642,22 +1257,44 @@ async def trigger_run(scenario_id: str, request: Request):
                 check_pause_fn=_check_pause,
                 step_confirm_callback=_step_confirm if supervised else None,
                 live_mode=live_mode,
+                run_id_override=run_id,
             )
             _write_step_log(steps_log, "done")
+            failed_steps = [s for s in steps_log if not s.get("passed")]
+            _append_audit(
+                result.run_id,
+                "run_completed" if result.passed else "run_failed",
+                "Run completed" if result.passed else "Run stopped before completion",
+                scenario_id=scenario_id,
+                user=user,
+                status="passed" if result.passed else "failed",
+                details={"steps_logged": len(steps_log), "failed_steps": len(failed_steps)},
+            )
             _ACTIVE_RUNS[scenario_id] = {
                 "status": "done",
                 "run_id": result.run_id,
                 "passed": result.passed,
+                "user": user,
             }
         except Exception as exc:
             import traceback
             print(f"[RUN ERROR] {scenario_id}: {exc}")
             traceback.print_exc()
             _write_step_log(steps_log, "error")
+            _append_audit(
+                run_id,
+                "run_failed",
+                "Run errored",
+                scenario_id=scenario_id,
+                user=user,
+                status="error",
+                details={"error": str(exc), "steps_logged": len(steps_log)},
+            )
             _ACTIVE_RUNS[scenario_id] = {
                 "status": "error",
                 "run_id": run_id,
                 "error": str(exc),
+                "user": user,
             }
 
     threading.Thread(target=_run, daemon=True).start()
@@ -696,6 +1333,16 @@ async def confirm_step(scenario_id: str, request: Request):
 
     _CONFIRM_RESULTS[scenario_id] = bool(confirmed)
     evt.set()
+    active = _ACTIVE_RUNS.get(scenario_id, {})
+    _append_audit(
+        active.get("run_id", ""),
+        "step_confirmed" if confirmed else "step_rejected",
+        "Step confirmed" if confirmed else "Step sent back for redo",
+        scenario_id=scenario_id,
+        user=_current_user(request),
+        step_id=active.get("confirming_step", ""),
+        status="confirmed" if confirmed else "redo",
+    )
     return JSONResponse({"ok": True, "confirmed": confirmed})
 
 
@@ -841,6 +1488,15 @@ Rules:
 @app.post("/api/run/{scenario_id}/cancel")
 def cancel_run(scenario_id: str):
     """Force-reset a stuck or paused run."""
+    active = _ACTIVE_RUNS.get(scenario_id, {})
+    _append_audit(
+        active.get("run_id", ""),
+        "run_cancelled",
+        "Run cancelled",
+        scenario_id=scenario_id,
+        user=active.get("user", {}),
+        status="cancelled",
+    )
     if scenario_id in _PAUSE_EVENTS:
         _PAUSE_FIX[scenario_id] = None
         _PAUSE_EVENTS[scenario_id].set()
@@ -863,6 +1519,17 @@ async def resume_run(scenario_id: str, request: Request):
         raise HTTPException(400, "No paused run for this scenario")
 
     _PAUSE_FIX[scenario_id] = {"commands": commands, "comment": comment}
+    active = _ACTIVE_RUNS.get(scenario_id, {})
+    _append_audit(
+        active.get("run_id", ""),
+        "fix_submitted",
+        "Human fix submitted",
+        scenario_id=scenario_id,
+        user=_current_user(request),
+        step_id=active.get("paused_step", ""),
+        status="fix",
+        details={"comment": comment, "commands": commands, "save_feedback": save_feedback},
+    )
 
     # Only save as step feedback if there was NO existing feedback for this step.
     # If there WAS feedback and it still failed, the resume fix is a one-off correction —
@@ -951,6 +1618,17 @@ async def live_done(scenario_id: str, request: Request):
             import threading as _t
             _t.Thread(target=_git_push_feedback, daemon=True).start()
 
+    active = _ACTIVE_RUNS.get(scenario_id, {})
+    _append_audit(
+        active.get("run_id", ""),
+        "live_control_finished",
+        "Live control finished",
+        scenario_id=scenario_id,
+        user=_current_user(request),
+        step_id=active.get("paused_step", ""),
+        status="resume",
+        details={"commands": commands, "saved_feedback": bool(commands)},
+    )
     _PAUSE_FIX[scenario_id] = {"skip": True}
     _PAUSE_EVENTS[scenario_id].set()
     return JSONResponse({"ok": True})
@@ -963,6 +1641,7 @@ async def request_control(scenario_id: str, request: Request):
     """
     body = await request.json()
     pre_answers = body.get("answers", {})
+    user = _current_user(request)
 
     status = _ACTIVE_RUNS.get(scenario_id, {}).get("status", "idle")
 
@@ -986,7 +1665,16 @@ async def request_control(scenario_id: str, request: Request):
             _PAUSE_EVENTS[scenario_id].set()
 
         run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        _ACTIVE_RUNS[scenario_id] = {"status": "running", "run_id": run_id}
+        _ACTIVE_RUNS[scenario_id] = {"status": "running", "run_id": run_id, "user": user, "live_mode": True}
+        _append_audit(
+            run_id,
+            "run_started",
+            "Run started for live control",
+            scenario_id=scenario_id,
+            user=user,
+            status="running",
+            details={"mode": "take-control", "answers": pre_answers, "step_count": len(scenario.steps)},
+        )
         step_log_file = RUNS_DIR / f"{scenario_id}_last_run.json"
 
         def _run():
@@ -999,6 +1687,16 @@ async def request_control(scenario_id: str, request: Request):
                         step_log_file.write_text(json.dumps({"run_id": run_id, "status": "running", "steps": steps_log}, indent=2))
                     except Exception:
                         pass
+                    _append_audit(
+                        run_id,
+                        "step_completed" if passed else "step_failed",
+                        "Step passed" if passed else "Step failed",
+                        scenario_id=scenario_id,
+                        user=user,
+                        step_id=step_id,
+                        status="pass" if passed else "fail",
+                        details={"error": error or "", "screenshot_url": screenshot_url or ""},
+                    )
 
                 def _check_pause(sid):
                     return _FORCE_PAUSE.pop(sid, False)
@@ -1007,14 +1705,25 @@ async def request_control(scenario_id: str, request: Request):
                                       pause_callback=lambda **kw: _pause_callback(**kw),
                                       initial_context=pre_answers,
                                       step_done_callback=_step_done,
-                                      check_pause_fn=_check_pause)
+                                      check_pause_fn=_check_pause,
+                                      run_id_override=run_id)
                 try:
                     step_log_file.write_text(json.dumps({"run_id": run_id, "status": "done", "steps": steps_log}, indent=2))
                 except Exception:
                     pass
-                _ACTIVE_RUNS[scenario_id] = {"status": "done", "run_id": result.run_id, "passed": result.passed}
+                _append_audit(
+                    run_id,
+                    "run_completed" if result.passed else "run_failed",
+                    "Run completed" if result.passed else "Run stopped before completion",
+                    scenario_id=scenario_id,
+                    user=user,
+                    status="passed" if result.passed else "failed",
+                    details={"steps_logged": len(steps_log), "failed_steps": len([s for s in steps_log if not s.get("passed")])},
+                )
+                _ACTIVE_RUNS[scenario_id] = {"status": "done", "run_id": result.run_id, "passed": result.passed, "user": user}
             except Exception as exc:
-                _ACTIVE_RUNS[scenario_id] = {"status": "error", "run_id": run_id, "error": str(exc)}
+                _append_audit(run_id, "run_failed", "Run errored", scenario_id=scenario_id, user=user, status="error", details={"error": str(exc)})
+                _ACTIVE_RUNS[scenario_id] = {"status": "error", "run_id": run_id, "error": str(exc), "user": user}
 
         import threading as _t
         _t.Thread(target=_run, daemon=True).start()
@@ -1340,7 +2049,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
 
 
 @app.post("/api/scenario/{scenario_id}/approve")
-def approve_scenario(scenario_id: str):
+def approve_scenario(request: Request, scenario_id: str):
     """Lock the current feedback as the golden playbook — used on every future run."""
     feedback = _load_feedback().get(scenario_id, {})
     approved = _load_approved()
@@ -1349,22 +2058,40 @@ def approve_scenario(scenario_id: str):
         "step_commands": feedback,
     }
     _save_approved(approved)
+    _append_audit(
+        _latest_run_id_for_scenario(scenario_id),
+        "scenario_approved",
+        "Scenario approved and locked",
+        scenario_id=scenario_id,
+        user=_current_user(request),
+        status="approved",
+        details={"steps_locked": len(feedback)},
+    )
     threading.Thread(target=_git_push_approved, daemon=True).start()
     return JSONResponse({"ok": True})
 
 
 @app.post("/api/scenario/{scenario_id}/unapprove")
-def unapprove_scenario(scenario_id: str):
+def unapprove_scenario(request: Request, scenario_id: str):
     """Remove the golden playbook so the scenario goes back to normal mode."""
     approved = _load_approved()
     approved.pop(scenario_id, None)
     _save_approved(approved)
+    _append_audit(
+        _latest_run_id_for_scenario(scenario_id),
+        "scenario_unapproved",
+        "Scenario lock removed",
+        scenario_id=scenario_id,
+        user=_current_user(request),
+        status="unapproved",
+    )
     threading.Thread(target=_git_push_approved, daemon=True).start()
     return JSONResponse({"ok": True})
 
 
 @app.post("/api/step-feedback")
 def set_step_feedback(
+    request: Request,
     scenario_id: str = Form(...),
     step_id: str = Form(...),
     feedback: str = Form(...),
@@ -1376,13 +2103,23 @@ def set_step_feedback(
     else:
         data.get(scenario_id, {}).pop(step_id, None)
     _save_feedback(data)
+    _append_audit(
+        _latest_run_id_for_scenario(scenario_id),
+        "step_feedback_saved",
+        "Step training saved" if feedback.strip() else "Step training cleared",
+        scenario_id=scenario_id,
+        user=_current_user(request),
+        step_id=step_id,
+        status="saved" if feedback.strip() else "cleared",
+        details={"feedback": feedback.strip(), "push": push},
+    )
     if push.lower() != "false":
         threading.Thread(target=_git_push_feedback, daemon=True).start()
     return JSONResponse({"ok": True})
 
 
 @app.post("/api/step-status")
-def set_step_status(scenario_id: str = Form(...), step_id: str = Form(...), status: str = Form(...)):
+def set_step_status(request: Request, scenario_id: str = Form(...), step_id: str = Form(...), status: str = Form(...)):
     if status not in VALID_STATUSES:
         raise HTTPException(400, f"Invalid status; must be one of {VALID_STATUSES}")
     data = _load_statuses()
@@ -1392,6 +2129,15 @@ def set_step_status(scenario_id: str = Form(...), step_id: str = Form(...), stat
         if not data[scenario_id]:
             data.pop(scenario_id)
     _save_statuses(data)
+    _append_audit(
+        _latest_run_id_for_scenario(scenario_id),
+        "manual_step_status",
+        "Manual step status changed",
+        scenario_id=scenario_id,
+        user=_current_user(request),
+        step_id=step_id,
+        status=status,
+    )
     return JSONResponse({"ok": True, "scenario_id": scenario_id, "step_id": step_id, "status": status})
 
 

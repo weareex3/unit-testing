@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block title %}Users & Roles - EX3 TestOps{% endblock %}
+
+{% block content %}
+<style>
+  .users-grid { display:grid; grid-template-columns: minmax(0,1fr) 360px; gap:18px; align-items:start; }
+  .user-table { overflow:hidden; }
+  .user-row { display:grid; grid-template-columns: minmax(0,1fr) 120px 90px; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--line); }
+  .user-row:last-child { border-bottom:0; }
+  .role-pill { width:max-content; padding:4px 9px; border-radius:999px; background:rgba(185,149,79,.12); border:1px solid rgba(185,149,79,.22); color:#79591f; font-size:11px; font-weight:800; text-transform:capitalize; }
+  .form-card { padding:20px; }
+  .form-card label { display:block; margin:12px 0 6px; color:var(--muted); font-size:12px; font-weight:750; }
+  .form-card select { width:100%; min-height:40px; border:1px solid var(--line); border-radius:11px; padding:9px 11px; background:rgba(255,255,255,.78); }
+  @media(max-width: 900px){ .users-grid{grid-template-columns:1fr;} }
+</style>
+
+<div class="topbar">
+  <nav class="breadcrumb">
+    <a href="/">Workspace</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current">Users & Roles</span>
+  </nav>
+</div>
+
+<div class="content">
+  <div class="content-inner">
+    <div style="margin-bottom:24px;">
+      <div class="page-kicker">Access control</div>
+      <h1 class="page-title">Users, roles, and permissions.</h1>
+      <p class="page-copy">Give testers the ability to run and train, leads the ability to approve and publish memory, and admins control over the workspace.</p>
+    </div>
+
+    <div class="users-grid">
+      <section class="surface user-table">
+        {% for user in users %}
+        <div class="user-row">
+          <div>
+            <div style="font-weight:800;">{{ user.name }}</div>
+            <div style="font-size:12px;color:var(--muted);">{{ user.username }}</div>
+          </div>
+          <span class="role-pill">{{ user.role }}</span>
+          {% if user.username != "louie" %}
+          <form method="post" action="/api/users/delete">
+            <input type="hidden" name="username" value="{{ user.username }}" />
+            <button class="btn btn-danger" type="submit">Remove</button>
+          </form>
+          {% endif %}
+        </div>
+        {% endfor %}
+      </section>
+
+      <form class="surface form-card" method="post" action="/api/users">
+        <div class="section-label">Add or update user</div>
+        <label>Name</label>
+        <input class="input" name="name" placeholder="e.g. Priya Shah" />
+        <label>Username</label>
+        <input class="input" name="username" required placeholder="e.g. priya" />
+        <label>Password</label>
+        <input class="input" name="password" type="password" placeholder="Leave blank to keep existing" />
+        <label>Role</label>
+        <select name="role">
+          {% for role in roles %}
+          <option value="{{ role }}">{{ role|capitalize }}</option>
+          {% endfor %}
+        </select>
+        <button class="btn btn-primary" style="width:100%;margin-top:16px;" type="submit">Save user</button>
+        <p style="font-size:12px;color:var(--muted);margin-top:12px;">Tester: run/train. Lead: approve/library/upload. Admin: users and workspace control.</p>
+      </form>
+    </div>
+  </div>
+</div>
+{% endblock %}
