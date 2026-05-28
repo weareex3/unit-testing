@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}Upload script - EX3 TestOps{% endblock %}
+
+{% block content %}
+<style>
+  .up-wrap { max-width:640px; margin:0 auto; }
+  .up-card { padding:30px; margin-top:8px; }
+  .up-kicker { color:var(--gold); font-size:11px; font-weight:800; letter-spacing:.1em; text-transform:uppercase; }
+  .up-title { font-size:28px; font-weight:800; margin-top:8px; }
+  .up-sub { color:var(--muted); margin-top:8px; font-size:14px; }
+  .filed { margin-top:18px; display:flex; align-items:center; gap:10px; padding:12px 14px; border-radius:12px; background:rgba(35,103,200,.06); border:1px solid rgba(35,103,200,.16); font-size:13px; }
+  .filed b { color:#2367c8; }
+  .drop { margin-top:22px; border:2px dashed rgba(185,149,79,.4); border-radius:16px; padding:30px; text-align:center; background:rgba(255,255,255,.5); transition:.15s ease; cursor:pointer; }
+  .drop.over { border-color:#b9954f; background:rgba(185,149,79,.08); }
+  .drop-icon { width:46px;height:46px;border-radius:13px;margin:0 auto 12px;display:grid;place-items:center;background:linear-gradient(135deg,#dfc27b,#9b7740);color:#111; }
+  .drop-name { margin-top:10px; font-weight:700; color:var(--ink); }
+  label { display:block; margin:20px 0 7px; color:var(--muted); font-size:12px; font-weight:750; }
+</style>
+
+<div class="topbar">
+  <nav class="breadcrumb">
+    <a href="/vault">Vault</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current">Upload script</span>
+  </nav>
+</div>
+
+<div class="content">
+  <div class="content-inner up-wrap">
+    <form class="surface up-card" method="post" action="/vault/upload" enctype="multipart/form-data">
+      <div class="up-kicker">Add to the Vault</div>
+      <div class="up-title">Upload a UAT script</div>
+      <p class="up-sub">Drop in an Excel workbook. It's filed automatically under your company — just tell us the module.</p>
+
+      <div class="filed">
+        <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+        <span>Filing under company <b>{{ company.name }}</b> as <b>{{ current_user.username }}</b></span>
+      </div>
+
+      <div class="drop" id="drop">
+        <div class="drop-icon">
+          <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0l-4 4m4-4l4 4M4 17v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1"/></svg>
+        </div>
+        <div>Click to choose a workbook, or drag it here</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:4px;">.xlsx files only</div>
+        <div class="drop-name" id="dropName"></div>
+        <input id="file" type="file" name="file" accept=".xlsx" required style="display:none" />
+      </div>
+
+      <label>Module</label>
+      <input class="input" name="module" list="modlist" required placeholder="e.g. RCM" autocomplete="off" />
+      <datalist id="modlist">
+        {% for m in modules %}<option value="{{ m }}"></option>{% endfor %}
+      </datalist>
+
+      <button class="btn btn-primary" style="width:100%;margin-top:22px;" type="submit">Add to Vault</button>
+    </form>
+  </div>
+</div>
+
+{% raw %}
+<script>
+(function(){
+  var drop=document.getElementById('drop'), input=document.getElementById('file'), name=document.getElementById('dropName');
+  if(!drop||!input){return;}
+  drop.addEventListener('click',function(){input.click();});
+  input.addEventListener('change',function(){name.textContent=input.files&&input.files[0]?input.files[0].name:'';});
+  ['dragover','dragenter'].forEach(function(e){drop.addEventListener(e,function(ev){ev.preventDefault();drop.classList.add('over');});});
+  ['dragleave','drop'].forEach(function(e){drop.addEventListener(e,function(ev){ev.preventDefault();drop.classList.remove('over');});});
+  drop.addEventListener('drop',function(ev){if(ev.dataTransfer&&ev.dataTransfer.files&&ev.dataTransfer.files.length){input.files=ev.dataTransfer.files;name.textContent=ev.dataTransfer.files[0].name;}});
+})();
+</script>
+{% endraw %}
+{% endblock %}

@@ -45,10 +45,16 @@ WEBAUTHN_CRED_FILE = WEBAUTHN_DIR / "webauthn_credentials.json"
 # assigned a company; uploaded scripts are filed under their company in the Vault.
 COMPANIES_FILE = _DATA_ROOT / "companies.json"
 
+# The Vault: uploaded UAT scripts organised as <company>/<module>/<file>.xlsx on
+# the persistent volume, with metadata in vault.json. Survives redeploys.
+VAULT_DIR = _DATA_ROOT / "vault"
+VAULT_INDEX = VAULT_DIR / "vault.json"
+
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADED_SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 WEBAUTHN_DIR.mkdir(parents=True, exist_ok=True)
+VAULT_DIR.mkdir(parents=True, exist_ok=True)
 (ROOT / "storage" / "global").mkdir(parents=True, exist_ok=True)
 
 
@@ -671,6 +677,8 @@ def _minimum_role_for_write(path: str, method: str) -> str:
         return "admin"
     if path.startswith("/webauthn/"):
         return "viewer"  # any signed-in user may enrol/check their own passkey
+    if path.startswith("/vault"):
+        return "viewer" if method in SAFE_METHODS else "tester"  # browse: anyone; upload: tester+
     if path.startswith("/api/scripts") or path.startswith("/scripts/upload"):
         return "lead"
     if method in SAFE_METHODS:
@@ -1182,6 +1190,134 @@ def delete_company(key: str = Form(...)):
     return RedirectResponse("/admin/companies", status_code=303)
 
 
+# ── Vault (company -> module -> scripts) ────────────────────────────────────
+_MODULE_SUGGESTIONS = ["RCM", "EC", "Onboarding", "PMGM", "Compensation", "Recruiting", "LMS", "Succession"]
+
+
+def _load_vault_index() -> dict:
+    if VAULT_INDEX.exists():
+        try:
+            data = json.loads(VAULT_INDEX.read_text())
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_vault_index(data: dict) -> None:
+    VAULT_DIR.mkdir(parents=True, exist_ok=True)
+    VAULT_INDEX.write_text(json.dumps(data, indent=2))
+
+
+def _safe_segment(value: str, fallback: str) -> str:
+    import re
+    seg = re.sub(r"[^A-Za-z0-9_.-]+", "_", value.strip()).strip("._")
+    return seg or fallback
+
+
+def _vault_view(user: dict) -> list[dict]:
+    """Company -> modules -> scripts, filtered to the user's company unless owner/admin."""
+    index = _load_vault_index()
+    see_all = _role_at_least(user.get("role", "viewer"), "admin")
+    my_company = (user.get("company") or "internal").strip().lower()
+    out = []
+    for co in _load_companies():
+        ckey = co["key"]
+        if not see_all and ckey != my_company:
+            continue
+        co_dir = VAULT_DIR / ckey
+        modules = []
+        if co_dir.exists():
+            for mod_dir in sorted([p for p in co_dir.iterdir() if p.is_dir()], key=lambda p: p.name.lower()):
+                scripts = []
+                for f in sorted(mod_dir.glob("*.xlsx"), key=lambda p: p.name.lower()):
+                    rel = f"{ckey}/{mod_dir.name}/{f.name}"
+                    meta = index.get(rel, {})
+                    scripts.append({
+                        "key": f.name,
+                        "name": meta.get("original_name") or f.stem.replace("_", " "),
+                        "uploaded_by": meta.get("uploaded_by", ""),
+                        "uploaded_at": meta.get("uploaded_at", ""),
+                    })
+                modules.append({"module": mod_dir.name, "scripts": scripts, "script_count": len(scripts)})
+        out.append({
+            "key": ckey,
+            "name": co["name"],
+            "modules": modules,
+            "module_count": len(modules),
+            "script_count": sum(m["script_count"] for m in modules),
+        })
+    return out
+
+
+@app.get("/vault", response_class=HTMLResponse)
+def vault_page(request: Request):
+    user = _current_user(request)
+    return templates.TemplateResponse(
+        request=request,
+        name="vault.html",
+        context={
+            "stats": _stats(),
+            "client_id": CLIENT_ID,
+            "current_user": user,
+            "companies_view": _vault_view(user),
+            "active": "vault",
+        },
+    )
+
+
+@app.get("/vault/upload", response_class=HTMLResponse)
+def vault_upload_page(request: Request):
+    user = _current_user(request)
+    company_key = (user.get("company") or "internal").strip().lower()
+    company = next((c for c in _load_companies() if c["key"] == company_key), {"key": company_key, "name": company_key})
+    return templates.TemplateResponse(
+        request=request,
+        name="upload.html",
+        context={
+            "stats": _stats(),
+            "client_id": CLIENT_ID,
+            "current_user": user,
+            "company": company,
+            "modules": _MODULE_SUGGESTIONS,
+            "active": "vault",
+        },
+    )
+
+
+@app.post("/vault/upload")
+async def vault_upload(request: Request, file: UploadFile = File(...), module: str = Form(...)):
+    user = _current_user(request)
+    if user.get("username", "guest") == "guest":
+        return RedirectResponse("/login", status_code=303)
+    if not file.filename or not file.filename.lower().endswith(".xlsx"):
+        raise HTTPException(400, "Upload an .xlsx workbook")
+    module = module.strip()
+    if not module:
+        raise HTTPException(400, "Module required")
+    company_key = (user.get("company") or "internal").strip().lower()
+    if company_key not in _company_keys():
+        company_key = "internal"
+    module_seg = _safe_segment(module, "MODULE")
+    dest_dir = VAULT_DIR / company_key / module_seg
+    dest_dir.mkdir(parents=True, exist_ok=True)
+    target = dest_dir / _safe_upload_name(file.filename)
+    if target.exists():
+        target = dest_dir / f"{target.stem}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.xlsx"
+    target.write_bytes(await file.read())
+    index = _load_vault_index()
+    index[f"{company_key}/{module_seg}/{target.name}"] = {
+        "company": company_key,
+        "module": module,
+        "original_name": file.filename,
+        "uploaded_by": user.get("username", ""),
+        "uploaded_at": _utc_now(),
+    }
+    _save_vault_index(index)
+    return RedirectResponse("/vault", status_code=303)
+
+
 def _safe_upload_name(filename: str) -> str:
     import re
     stem = Path(filename).stem
@@ -1215,9 +1351,17 @@ CATEGORY_RULES = [
 ]
 
 
+def _all_workbook_paths() -> list[Path]:
+    """Every workbook the runner can load: legacy script dirs + the Vault tree."""
+    return sorted(
+        {*SCRIPTS_DIR.glob("*.xlsx"), *UPLOADED_SCRIPTS_DIR.glob("*.xlsx"), *VAULT_DIR.rglob("*.xlsx")},
+        key=lambda p: p.name.lower(),
+    )
+
+
 def _workbooks() -> list[dict]:
     books = []
-    workbook_paths = sorted({*SCRIPTS_DIR.glob("*.xlsx"), *UPLOADED_SCRIPTS_DIR.glob("*.xlsx")}, key=lambda p: p.name.lower())
+    workbook_paths = _all_workbook_paths()
     for path in workbook_paths:
         try:
             scenarios = parse_workbook(str(path))
@@ -1235,7 +1379,7 @@ def _workbooks() -> list[dict]:
 
 
 def _load_scenarios(workbook: str | None = None):
-    workbooks = sorted({*SCRIPTS_DIR.glob("*.xlsx"), *UPLOADED_SCRIPTS_DIR.glob("*.xlsx")}, key=lambda p: p.name.lower())
+    workbooks = _all_workbook_paths()
     if workbook:
         safe_name = Path(workbook).name
         workbooks = [p for p in workbooks if p.name == safe_name]

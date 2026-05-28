@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% block title %}Vault - EX3 TestOps{% endblock %}
+
+{% block content %}
+<style>
+  .vault-head { display:flex; align-items:flex-end; justify-content:space-between; gap:16px; margin-bottom:24px; }
+  .company-card { margin-bottom:18px; padding:20px 22px; }
+  .company-top { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:4px; }
+  .company-name { font-size:17px; font-weight:800; }
+  .company-meta { font-size:12px; color:var(--muted); }
+  .folder-key { font-family:"SF Mono", Consolas, monospace; font-size:11px; color:var(--muted); }
+  .module-block { margin-top:16px; }
+  .module-label { display:flex; align-items:center; gap:9px; font-size:12px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:#7d5d22; margin-bottom:8px; }
+  .module-label svg { opacity:.8; }
+  .script-row { display:grid; grid-template-columns: minmax(0,1fr) 150px 120px; gap:12px; align-items:center; padding:11px 14px; border-radius:11px; background:rgba(255,255,255,.6); border:1px solid var(--line); margin-bottom:6px; transition:.15s ease; }
+  .script-row:hover { border-color:rgba(185,149,79,.3); transform:translateY(-1px); }
+  .script-name { font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .script-meta { font-size:12px; color:var(--muted); }
+  .empty { padding:18px; border:1px dashed var(--line); border-radius:12px; color:var(--muted); font-size:13px; }
+</style>
+
+<div class="topbar">
+  <nav class="breadcrumb">
+    <a href="/">Workspace</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current">Vault</span>
+  </nav>
+  <a class="btn btn-primary" href="/vault/upload">+ Upload script</a>
+</div>
+
+<div class="content">
+  <div class="content-inner">
+    <div class="vault-head">
+      <div>
+        <div class="page-kicker">Script library</div>
+        <h1 class="page-title">The Vault.</h1>
+        <p class="page-copy">UAT scripts filed by company and module. Open one to view its scenarios and run them.</p>
+      </div>
+    </div>
+
+    {% for co in companies_view %}
+    <section class="surface company-card">
+      <div class="company-top">
+        <div>
+          <div class="company-name">{{ co.name }}</div>
+          <div class="folder-key">{{ co.key }}</div>
+        </div>
+        <div class="company-meta">{{ co.module_count }} module{{ '' if co.module_count == 1 else 's' }} · {{ co.script_count }} script{{ '' if co.script_count == 1 else 's' }}</div>
+      </div>
+
+      {% if co.modules %}
+        {% for m in co.modules %}
+        <div class="module-block">
+          <div class="module-label">
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
+            {{ m.module }}
+          </div>
+          {% for s in m.scripts %}
+          <a class="script-row" href="/?script={{ s.key }}">
+            <span class="script-name">{{ s.name }}</span>
+            <span class="script-meta">{{ s.uploaded_by or "—" }}</span>
+            <span class="script-meta">{{ s.uploaded_at[:10] if s.uploaded_at else "" }}</span>
+          </a>
+          {% endfor %}
+        </div>
+        {% endfor %}
+      {% else %}
+        <div class="empty" style="margin-top:14px;">No scripts yet. <a href="/vault/upload" style="color:#7d5d22;font-weight:700;">Upload one</a> to get started.</div>
+      {% endif %}
+    </section>
+    {% endfor %}
+
+    {% if not companies_view %}
+    <div class="empty">No companies visible to your account yet.</div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
