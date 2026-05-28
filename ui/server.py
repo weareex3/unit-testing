@@ -1235,7 +1235,7 @@ def _vault_view(user: dict) -> list[dict]:
                     rel = f"{ckey}/{mod_dir.name}/{f.name}"
                     meta = index.get(rel, {})
                     scripts.append({
-                        "key": f.name,
+                        "key": rel,
                         "name": meta.get("original_name") or f.stem.replace("_", " "),
                         "uploaded_by": meta.get("uploaded_by", ""),
                         "uploaded_at": meta.get("uploaded_at", ""),
@@ -1267,6 +1267,20 @@ def vault_page(request: Request):
     )
 
 
+def _company_vault_scenario_ids(company_key: str) -> set:
+    """All scenario IDs already filed in a company's Vault (across modules)."""
+    ids: set = set()
+    co_dir = VAULT_DIR / company_key
+    if co_dir.exists():
+        for f in co_dir.rglob("*.xlsx"):
+            try:
+                for s in parse_workbook(str(f)):
+                    ids.add(s.scenario_id)
+            except Exception:
+                pass
+    return ids
+
+
 @app.get("/vault/upload", response_class=HTMLResponse)
 def vault_upload_page(request: Request):
     user = _current_user(request)
@@ -1281,6 +1295,7 @@ def vault_upload_page(request: Request):
             "current_user": user,
             "company": company,
             "modules": _MODULE_SUGGESTIONS,
+            "dupe": request.query_params.get("dupe", ""),
             "active": "vault",
         },
     )
@@ -1288,6 +1303,7 @@ def vault_upload_page(request: Request):
 
 @app.post("/vault/upload")
 async def vault_upload(request: Request, file: UploadFile = File(...), module: str = Form(...)):
+    import tempfile
     user = _current_user(request)
     if user.get("username", "guest") == "guest":
         return RedirectResponse("/login", status_code=303)
@@ -1299,13 +1315,32 @@ async def vault_upload(request: Request, file: UploadFile = File(...), module: s
     company_key = (user.get("company") or "internal").strip().lower()
     if company_key not in _company_keys():
         company_key = "internal"
+
+    data = await file.read()
+    # Parse first (to a temp file outside the Vault) and reject if these tasks are
+    # already in this company's Vault — stops the same script being added twice.
+    tmp = Path(tempfile.gettempdir()) / f"ex3up_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}.xlsx"
+    tmp.write_bytes(data)
+    try:
+        new_ids = {s.scenario_id for s in parse_workbook(str(tmp))}
+    except Exception:
+        new_ids = set()
+    finally:
+        try:
+            tmp.unlink()
+        except Exception:
+            pass
+    dupes = sorted(new_ids & _company_vault_scenario_ids(company_key))
+    if dupes:
+        return RedirectResponse(f"/vault/upload?dupe={','.join(dupes[:8])}", status_code=303)
+
     module_seg = _safe_segment(module, "MODULE")
     dest_dir = VAULT_DIR / company_key / module_seg
     dest_dir.mkdir(parents=True, exist_ok=True)
     target = dest_dir / _safe_upload_name(file.filename)
     if target.exists():
         target = dest_dir / f"{target.stem}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.xlsx"
-    target.write_bytes(await file.read())
+    target.write_bytes(data)
     index = _load_vault_index()
     index[f"{company_key}/{module_seg}/{target.name}"] = {
         "company": company_key,
@@ -1315,6 +1350,30 @@ async def vault_upload(request: Request, file: UploadFile = File(...), module: s
         "uploaded_at": _utc_now(),
     }
     _save_vault_index(index)
+    return RedirectResponse("/vault", status_code=303)
+
+
+@app.post("/vault/delete")
+def vault_delete(request: Request, key: str = Form(...)):
+    user = _current_user(request)
+    safe = key.strip().strip("/")
+    target = (VAULT_DIR / safe).resolve()
+    if not target.is_relative_to(VAULT_DIR.resolve()) or target.suffix != ".xlsx":
+        raise HTTPException(400, "Invalid script reference")
+    company_key = safe.split("/", 1)[0] if "/" in safe else ""
+    if not _role_at_least(user.get("role", "viewer"), "admin") and company_key != (user.get("company") or "internal").strip().lower():
+        raise HTTPException(403, "You can only delete your own company's scripts")
+    if target.exists():
+        target.unlink()
+        idx = _load_vault_index()
+        idx.pop(safe, None)
+        _save_vault_index(idx)
+        try:
+            parent = target.parent
+            if parent.exists() and parent != VAULT_DIR and not any(parent.iterdir()):
+                parent.rmdir()
+        except Exception:
+            pass
     return RedirectResponse("/vault", status_code=303)
 
 
@@ -1359,6 +1418,16 @@ def _all_workbook_paths() -> list[Path]:
     )
 
 
+def _key_for_path(p: Path) -> str:
+    """Unique address for a workbook: vault-relative path (company/module/file)
+    for Vault scripts, bare filename for legacy ones. Prevents two same-named
+    Vault files from colliding under one ?script= key."""
+    try:
+        return p.relative_to(VAULT_DIR).as_posix()
+    except ValueError:
+        return p.name
+
+
 def _workbooks() -> list[dict]:
     books = []
     workbook_paths = _all_workbook_paths()
@@ -1370,7 +1439,7 @@ def _workbooks() -> list[dict]:
             scenarios = []
             step_count = 0
         books.append({
-            "key": path.name,
+            "key": _key_for_path(path),
             "name": path.stem.replace("_", " ").replace("-", " "),
             "scenario_count": len(scenarios),
             "step_count": step_count,
@@ -1381,8 +1450,7 @@ def _workbooks() -> list[dict]:
 def _load_scenarios(workbook: str | None = None):
     workbooks = _all_workbook_paths()
     if workbook:
-        safe_name = Path(workbook).name
-        workbooks = [p for p in workbooks if p.name == safe_name]
+        workbooks = [p for p in workbooks if _key_for_path(p) == workbook]
     if not workbooks:
         return []
     scenarios = []

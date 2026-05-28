@@ -12,9 +12,11 @@
   .module-block { margin-top:16px; }
   .module-label { display:flex; align-items:center; gap:9px; font-size:12px; font-weight:800; letter-spacing:.04em; text-transform:uppercase; color:#7d5d22; margin-bottom:8px; }
   .module-label svg { opacity:.8; }
-  .script-row { display:grid; grid-template-columns: minmax(0,1fr) 150px 120px; gap:12px; align-items:center; padding:11px 14px; border-radius:11px; background:rgba(255,255,255,.6); border:1px solid var(--line); margin-bottom:6px; transition:.15s ease; }
-  .script-row:hover { border-color:rgba(185,149,79,.3); transform:translateY(-1px); }
-  .script-name { font-weight:700; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .script-row { display:grid; grid-template-columns: minmax(0,1fr) 140px 105px 86px; gap:12px; align-items:center; padding:11px 14px; border-radius:11px; background:rgba(255,255,255,.6); border:1px solid var(--line); margin-bottom:6px; transition:.15s ease; }
+  .script-row:hover { border-color:rgba(185,149,79,.3); }
+  .script-open { font-weight:700; color:var(--ink); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .script-open:hover { color:#7d5d22; }
+  .script-del { justify-self:end; }
   .script-meta { font-size:12px; color:var(--muted); }
   .empty { padding:18px; border:1px dashed var(--line); border-radius:12px; color:var(--muted); font-size:13px; }
 </style>
@@ -56,11 +58,15 @@
             {{ m.module }}
           </div>
           {% for s in m.scripts %}
-          <a class="script-row" href="/?script={{ s.key }}">
-            <span class="script-name">{{ s.name }}</span>
+          <div class="script-row">
+            <a class="script-open" href="/?script={{ s.key }}">{{ s.name }}</a>
             <span class="script-meta">{{ s.uploaded_by or "—" }}</span>
             <span class="script-meta">{{ s.uploaded_at[:10] if s.uploaded_at else "" }}</span>
-          </a>
+            <form class="script-del" method="post" action="/vault/delete" onsubmit="return confirm('Remove this script from the Vault? This cannot be undone.');">
+              <input type="hidden" name="key" value="{{ s.key }}" />
+              <button class="btn btn-danger" type="submit" style="min-height:30px;padding:5px 11px;font-size:12px;">Remove</button>
+            </form>
+          </div>
           {% endfor %}
         </div>
         {% endfor %}
