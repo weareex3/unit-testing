@@ -10,7 +10,10 @@ import os
 from datetime import datetime
 from pathlib import Path
 
-_STORAGE_ROOT = Path(__file__).resolve().parent.parent / "storage"
+_APP_ROOT = Path(__file__).resolve().parent.parent
+# Learned SF navigation knowledge lives on the /data volume when present so it
+# survives redeploys; falls back to the app dir for local runs.
+_STORAGE_ROOT = (Path("/data") if Path("/data").exists() else _APP_ROOT) / "storage"
 _GLOBAL_NOTES = _STORAGE_ROOT / "global" / "sf_notes.md"
 
 

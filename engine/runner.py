@@ -24,10 +24,16 @@ _STOP_WORDS = {"the", "a", "an", "to", "from", "and", "or", "in", "on", "of", "f
                "is", "are", "you", "your", "it", "this", "that", "with", "by", "at"}
 
 
+def _storage_root() -> Path:
+    """Storage root — the /data volume when present (persists across redeploys),
+    else the app dir for local runs. Keeps the engine's learned memory in the
+    same place server.py reads/writes it."""
+    app_root = Path(__file__).resolve().parent.parent
+    return (Path("/data") if Path("/data").exists() else app_root) / "storage"
+
+
 def _pattern_file() -> Path:
-    root = Path(__file__).resolve().parent.parent / "storage"
-    client_id = os.getenv("CLIENT_ID", "default")
-    return root / client_id / "patterns.json"
+    return _storage_root() / os.getenv("CLIENT_ID", "default") / "patterns.json"
 
 
 def _load_patterns() -> list:
@@ -149,7 +155,7 @@ def run_scenario(
 
             # Task library: check once per scenario if the whole scenario matches a saved task
             import json as _json
-            _lib_file = Path(__file__).resolve().parent.parent / "storage" / "global" / "step_library.json"
+            _lib_file = _storage_root() / "global" / "step_library.json"
             _library = {}
             if _lib_file.exists():
                 try:
@@ -407,7 +413,7 @@ def run_scenario(
 def _load_expected_overrides(scenario_id: str) -> dict:
     """Load step_id → expected_result override map for this scenario."""
     import json
-    root = Path(__file__).resolve().parent.parent / "storage"
+    root = _storage_root()
     client_id = os.getenv("CLIENT_ID", "default")
     f = root / client_id / "expected_overrides.json"
     if not f.exists():
@@ -425,7 +431,7 @@ def _load_expected_overrides(scenario_id: str) -> dict:
 def _load_feedback(scenario_id: str) -> dict:
     """Load stored human feedback — client-specific first, then global fallback."""
     import json
-    root = Path(__file__).resolve().parent.parent / "storage"
+    root = _storage_root()
     client_id = os.getenv("CLIENT_ID", "default")
 
     client_file = root / client_id / "step_feedback.json"
@@ -490,7 +496,7 @@ def _library_task_match(scenario_steps: list, library: dict) -> dict:
 def _load_approved_commands(scenario_id: str) -> dict:
     """Return step_id -> command string for approved (locked) scenarios, or {}."""
     import json
-    root = Path(__file__).resolve().parent.parent / "storage"
+    root = _storage_root()
     client_id = os.getenv("CLIENT_ID", "default")
     approved_file = root / client_id / "approved.json"
     if not approved_file.exists():

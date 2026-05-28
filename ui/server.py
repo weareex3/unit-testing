@@ -31,7 +31,10 @@ SCRIPTS_DIR = ROOT / "scripts"
 _DATA_ROOT = Path("/data") if Path("/data").exists() else ROOT
 RUNS_DIR = _DATA_ROOT / "runs" / CLIENT_ID
 UPLOADED_SCRIPTS_DIR = _DATA_ROOT / "scripts" / CLIENT_ID
-STORAGE_DIR = ROOT / "storage" / CLIENT_ID
+# Learned/stateful data (feedback, approved patterns, library, statuses, users)
+# lives on the /data volume so it survives redeploys — it used to sit in the app
+# image and was wiped on every `railway up`.
+STORAGE_DIR = _DATA_ROOT / "storage" / CLIENT_ID
 STATUS_FILE = STORAGE_DIR / "step_status.json"
 USERS_FILE = STORAGE_DIR / "users.json"
 
@@ -55,7 +58,31 @@ UPLOADED_SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
 WEBAUTHN_DIR.mkdir(parents=True, exist_ok=True)
 VAULT_DIR.mkdir(parents=True, exist_ok=True)
-(ROOT / "storage" / "global").mkdir(parents=True, exist_ok=True)
+(_DATA_ROOT / "storage" / "global").mkdir(parents=True, exist_ok=True)
+
+
+def _seed_persistent_storage() -> None:
+    """On first boot with a /data volume, copy the bundled/committed storage seed
+    onto /data — but never overwrite files already there, so runtime learning that
+    has accumulated on the volume is preserved across redeploys."""
+    if _DATA_ROOT == ROOT:
+        return  # local dev, no volume — nothing to migrate
+    import shutil
+    src_root = ROOT / "storage"
+    if not src_root.exists():
+        return
+    for src in src_root.rglob("*"):
+        if src.is_file():
+            dst = _DATA_ROOT / "storage" / src.relative_to(src_root)
+            if not dst.exists():
+                dst.parent.mkdir(parents=True, exist_ok=True)
+                try:
+                    shutil.copy2(src, dst)
+                except Exception as exc:
+                    print(f"[seed] {src.name}: {exc}")
+
+
+_seed_persistent_storage()
 
 
 def _restore_feedback_from_approved() -> None:
@@ -278,7 +305,7 @@ def _confirm_callback(scenario_id: str, step_id: str, screenshot_path: str, run_
 VALID_STATUSES = {"pass", "fail", "blocked", "not_tested"}
 FEEDBACK_FILE = STORAGE_DIR / "step_feedback.json"
 APPROVED_FILE = STORAGE_DIR / "approved.json"
-LIBRARY_FILE = ROOT / "storage" / "global" / "step_library.json"
+LIBRARY_FILE = _DATA_ROOT / "storage" / "global" / "step_library.json"
 
 
 # ── Global step library ───────────────────────────────────────────────────────
