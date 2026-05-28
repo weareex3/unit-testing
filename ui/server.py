@@ -720,11 +720,12 @@ _LOGIN_FINGERPRINT_JS = """
   btn.style.display='flex';
   function say(t,err){msg.textContent=t;msg.style.color=err?'#ff9b8f':'#bcb5a8';}
   btn.addEventListener('click',async function(){
-    say('Waiting for your fingerprint...',false);
+    if(btn.disabled){return;}
+    btn.disabled=true;say('Waiting for your fingerprint...',false);
     try{
       var br=await fetch('/webauthn/authenticate/begin',{method:'POST'});
       var bd=await br.json();
-      if(!bd.ok){say(bd.error||'Fingerprint sign-in unavailable',true);return;}
+      if(!bd.ok){say(bd.error||'Fingerprint sign-in unavailable',true);btn.disabled=false;return;}
       var o=bd.options;
       o.challenge=b2b(o.challenge);
       if(o.allowCredentials){o.allowCredentials=o.allowCredentials.map(function(c){return Object.assign({},c,{id:b2b(c.id)});});}
@@ -732,8 +733,8 @@ _LOGIN_FINGERPRINT_JS = """
       var cred={id:asr.id,rawId:buf(asr.rawId),type:asr.type,response:{clientDataJSON:buf(asr.response.clientDataJSON),authenticatorData:buf(asr.response.authenticatorData),signature:buf(asr.response.signature),userHandle:asr.response.userHandle?buf(asr.response.userHandle):null},clientExtensionResults:asr.getClientExtensionResults?asr.getClientExtensionResults():{},authenticatorAttachment:asr.authenticatorAttachment||null};
       var cr=await fetch('/webauthn/authenticate/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:cred})});
       var rd=await cr.json();
-      if(rd.ok){window.location.href=rd.redirect||'/';}else{say(rd.error||'Fingerprint sign-in failed',true);}
-    }catch(e){say('Fingerprint cancelled',true);}
+      if(rd.ok){window.location.href=rd.redirect||'/';}else{say(rd.error||'Fingerprint sign-in failed',true);btn.disabled=false;}
+    }catch(e){say('Fingerprint cancelled',true);btn.disabled=false;}
   });
 })();
 </script>
