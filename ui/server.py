@@ -1470,6 +1470,16 @@ def _stats(workbook: str | None = None):
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     selected_workbook = request.query_params.get("script") or None
+    user = _current_user(request)
+    # Bare "/" is the simple post-login landing: upload your own, or open the Vault.
+    if not selected_workbook:
+        return templates.TemplateResponse(
+            request=request,
+            name="landing.html",
+            context={"current_user": user, "client_id": CLIENT_ID},
+        )
+    workbooks = _workbooks()
+    selected_name = next((w["name"] for w in workbooks if w["key"] == selected_workbook), selected_workbook)
     return templates.TemplateResponse(
         request=request,
         name="index.html",
@@ -1477,11 +1487,12 @@ def home(request: Request):
             "groups": _grouped_scenarios(selected_workbook),
             "stats": _stats(selected_workbook),
             "all_stats": _stats(),
-            "workbooks": _workbooks(),
+            "workbooks": workbooks,
             "selected_workbook": selected_workbook,
+            "selected_name": selected_name,
             "active": "all",
             "client_id": CLIENT_ID,
-            "current_user": _current_user(request),
+            "current_user": user,
         },
     )
 

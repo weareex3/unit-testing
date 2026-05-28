@@ -74,7 +74,9 @@
   <nav class="breadcrumb">
     <a href="/" class="breadcrumb-link">Workspace</a>
     <span class="breadcrumb-sep">/</span>
-    <span class="breadcrumb-current">Command Centre</span>
+    <a href="/vault" class="breadcrumb-link">Vault</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current">{{ selected_name }}</span>
   </nav>
   <button class="btn btn-ghost" type="button">
     <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
@@ -84,47 +86,19 @@
 
 <div class="content">
   <div class="content-inner">
-    <section class="hero">
-      <div class="surface hero-main">
-        <div class="page-kicker">Precision UAT automation</div>
-        <h1 class="page-title">Every step watched, trained, and remembered.</h1>
-        <p class="page-copy">Run test scripts like a guided service: automation handles the known path, pauses cleanly when judgement is needed, then learns the exact fix for next time.</p>
-        <div class="script-tabs">
-          <a class="script-tab {% if not selected_workbook %}active{% endif %}" href="/">All scripts <span>{{ all_stats.total }}</span></a>
-          {% for wb in workbooks %}
-          <a class="script-tab {% if selected_workbook == wb.key %}active{% endif %}" href="/?script={{ wb.key }}">{{ wb.name }} <span>{{ wb.scenario_count }}</span></a>
-          {% endfor %}
-        </div>
-        <div class="metric-grid">
-          <div class="metric"><div class="metric-value">{{ stats.total }}</div><div class="metric-label">Test cases</div></div>
-          <div class="metric"><div class="metric-value">{{ stats.passing }}</div><div class="metric-label">Passing</div></div>
-          <div class="metric"><div class="metric-value">{{ stats.failing }}</div><div class="metric-label">Needs focus</div></div>
-          <div class="metric"><div class="metric-value">{{ stats.blocked }}</div><div class="metric-label">Blocked</div></div>
-        </div>
+    <section style="margin-bottom:8px;">
+      <a href="/vault" style="display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;font-weight:750;margin-bottom:12px;">
+        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M15 19l-7-7 7-7"/></svg>
+        Back to Vault
+      </a>
+      <h1 class="page-title">{{ selected_name }}</h1>
+      <p class="page-copy">{{ stats.total }} test case{{ '' if stats.total == 1 else 's' }} in this script. Open one to run it step by step.</p>
+      <div class="metric-grid" style="max-width:660px;">
+        <div class="metric"><div class="metric-value">{{ stats.total }}</div><div class="metric-label">Test cases</div></div>
+        <div class="metric"><div class="metric-value">{{ stats.passing }}</div><div class="metric-label">Passing</div></div>
+        <div class="metric"><div class="metric-value">{{ stats.failing }}</div><div class="metric-label">Needs focus</div></div>
+        <div class="metric"><div class="metric-value">{{ stats.blocked }}</div><div class="metric-label">Blocked</div></div>
       </div>
-      <aside class="surface hero-side">
-        <div class="run-focus">
-          <div class="run-icon">1</div>
-          <div>
-            <div style="font-weight:800;font-size:14px;">Step-by-step is the control point</div>
-            <p style="margin-top:4px;color:rgba(255,255,255,.66);font-size:12px;">Accuracy comes from the pause: inspect, act, save, lock, resume.</p>
-          </div>
-        </div>
-        <div>
-          <div class="section-label">Operating standard</div>
-          <p style="margin-top:8px;color:var(--muted);font-size:13px;">No silent guessing. Failed steps become teachable moments, and approved actions become reusable memory.</p>
-        </div>
-        {% if current_user is defined and current_user.role in ["lead", "admin", "owner"] %}
-        <form class="upload-card" action="/scripts/upload" method="post" enctype="multipart/form-data">
-          <div>
-            <div style="font-size:13px;font-weight:800;color:var(--ink);">Upload script</div>
-            <div style="font-size:12px;color:var(--muted);">Excel workbooks become their own tabs.</div>
-          </div>
-          <input type="file" name="file" accept=".xlsx" required />
-          <button class="btn btn-primary" type="submit">Add</button>
-        </form>
-        {% endif %}
-      </aside>
     </section>
 
     <div class="toolbar">
