@@ -35,9 +35,16 @@ STORAGE_DIR = ROOT / "storage" / CLIENT_ID
 STATUS_FILE = STORAGE_DIR / "step_status.json"
 USERS_FILE = STORAGE_DIR / "users.json"
 
+# Passkey / WebAuthn credentials live on the persistent volume (/data) so that
+# fingerprint enrolments survive redeploys — storage/ is part of the app image
+# and is wiped on every `railway up`.
+WEBAUTHN_DIR = _DATA_ROOT / "auth" / CLIENT_ID
+WEBAUTHN_CRED_FILE = WEBAUTHN_DIR / "webauthn_credentials.json"
+
 RUNS_DIR.mkdir(parents=True, exist_ok=True)
 UPLOADED_SCRIPTS_DIR.mkdir(parents=True, exist_ok=True)
 STORAGE_DIR.mkdir(parents=True, exist_ok=True)
+WEBAUTHN_DIR.mkdir(parents=True, exist_ok=True)
 (ROOT / "storage" / "global").mkdir(parents=True, exist_ok=True)
 
 
@@ -657,6 +664,8 @@ def _role_at_least(role: str, minimum: str) -> bool:
 def _minimum_role_for_write(path: str, method: str) -> str:
     if path.startswith("/admin") or path.startswith("/api/users"):
         return "admin"
+    if path.startswith("/webauthn/"):
+        return "viewer"  # any signed-in user may enrol/check their own passkey
     if path.startswith("/api/scripts") or path.startswith("/scripts/upload"):
         return "lead"
     if method in SAFE_METHODS:
@@ -680,7 +689,11 @@ async def require_pin(request: Request, call_next):
         return await call_next(request)
 
     path = request.url.path
-    if path in ("/login", "/logout") or path.startswith("/static"):
+    if (
+        path in ("/login", "/logout")
+        or path.startswith("/static")
+        or path.startswith("/webauthn/authenticate")  # passkey login happens pre-auth
+    ):
         return await call_next(request)
 
     user = _read_auth_cookie(request)
@@ -695,6 +708,36 @@ async def require_pin(request: Request, call_next):
     if path.startswith("/api/"):
         return JSONResponse({"ok": False, "error": "Authentication required"}, status_code=401)
     return RedirectResponse("/login", status_code=303)
+
+
+_LOGIN_FINGERPRINT_JS = """
+<script>
+(function(){
+  function b2b(s){s=s.replace(/-/g,'+').replace(/_/g,'/');var p=s.length%4;if(p)s+='='.repeat(4-p);var bin=atob(s);var u=new Uint8Array(bin.length);for(var i=0;i<bin.length;i++)u[i]=bin.charCodeAt(i);return u.buffer;}
+  function buf(b){var u=new Uint8Array(b);var s='';for(var i=0;i<u.length;i++)s+=String.fromCharCode(u[i]);return btoa(s).replace(/\\+/g,'-').replace(/\\//g,'_').replace(/=+$/,'');}
+  var btn=document.getElementById('pk-btn'),msg=document.getElementById('pk-msg');
+  if(!btn||!window.PublicKeyCredential||!navigator.credentials){return;}
+  btn.style.display='flex';
+  function say(t,err){msg.textContent=t;msg.style.color=err?'#ff9b8f':'#bcb5a8';}
+  btn.addEventListener('click',async function(){
+    say('Waiting for your fingerprint...',false);
+    try{
+      var br=await fetch('/webauthn/authenticate/begin',{method:'POST'});
+      var bd=await br.json();
+      if(!bd.ok){say(bd.error||'Fingerprint sign-in unavailable',true);return;}
+      var o=bd.options;
+      o.challenge=b2b(o.challenge);
+      if(o.allowCredentials){o.allowCredentials=o.allowCredentials.map(function(c){return Object.assign({},c,{id:b2b(c.id)});});}
+      var asr=await navigator.credentials.get({publicKey:o});
+      var cred={id:asr.id,rawId:buf(asr.rawId),type:asr.type,response:{clientDataJSON:buf(asr.response.clientDataJSON),authenticatorData:buf(asr.response.authenticatorData),signature:buf(asr.response.signature),userHandle:asr.response.userHandle?buf(asr.response.userHandle):null},clientExtensionResults:asr.getClientExtensionResults?asr.getClientExtensionResults():{},authenticatorAttachment:asr.authenticatorAttachment||null};
+      var cr=await fetch('/webauthn/authenticate/complete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({credential:cred})});
+      var rd=await cr.json();
+      if(rd.ok){window.location.href=rd.redirect||'/';}else{say(rd.error||'Fingerprint sign-in failed',true);}
+    }catch(e){say('Fingerprint cancelled',true);}
+  });
+})();
+</script>
+"""
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -731,7 +774,13 @@ def login_page(request: Request):
     <input id="password" name="password" type="password" inputmode="numeric" autocomplete="current-password" />
     <button type="submit">Enter workspace</button>
     {('<div class="err">Incorrect username or password</div>' if error else '')}
+    <button id="pk-btn" type="button" style="display:none;margin-top:12px;background:rgba(255,255,255,.06);color:#f7f3ea;border:1px solid rgba(226,207,159,.22);align-items:center;justify-content:center;gap:9px">
+      <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10.5c0 3.5-.2 6-1.2 8.5"/><path d="M8.2 10a3.8 3.8 0 0 1 7.6 0c0 4-.7 6.2-1 7"/><path d="M5.2 10.6a6.8 6.8 0 0 1 11.4-4.7"/><path d="M9 18.6c.5-1.3.6-3.4.6-5.1a2.4 2.4 0 0 1 4.8 0"/></svg>
+      Sign in with fingerprint
+    </button>
+    <div id="pk-msg" style="margin-top:10px;font-size:12px;color:#bcb5a8;min-height:14px"></div>
   </form>
+""" + _LOGIN_FINGERPRINT_JS + """
 </body>
 </html>""")
 
@@ -754,6 +803,233 @@ def login(username: str = Form("louie"), password: str = Form("")):
 def logout():
     response = RedirectResponse("/login", status_code=303)
     response.delete_cookie(AUTH_COOKIE)
+    return response
+
+
+# ── WebAuthn / passkeys (fingerprint, Touch ID, Windows Hello) ──────────────
+# Fingerprint login is a convenience layer ON TOP of the password: users log in
+# with their password, then optionally enrol a passkey on their device. The
+# biometric never leaves the device — we only store a public key per credential.
+RP_ID = os.getenv("WEBAUTHN_RP_ID", "ex3-testops-next-production.up.railway.app")
+RP_NAME = os.getenv("WEBAUTHN_RP_NAME", "EX3 TestOps")
+WEBAUTHN_ORIGIN = os.getenv("WEBAUTHN_ORIGIN", f"https://{RP_ID}")
+WA_CHALLENGE_COOKIE = "ex3_wa_chal"
+
+try:
+    import webauthn as _webauthn
+    from webauthn.helpers import bytes_to_base64url, base64url_to_bytes
+    from webauthn.helpers.structs import (
+        PublicKeyCredentialDescriptor,
+        AuthenticatorSelectionCriteria,
+        ResidentKeyRequirement,
+        UserVerificationRequirement,
+    )
+    _WEBAUTHN_OK = True
+except Exception as _wa_exc:  # library missing → endpoints degrade gracefully
+    print(f"[webauthn] library unavailable: {_wa_exc}")
+    _WEBAUTHN_OK = False
+
+
+def _load_webauthn_creds() -> dict:
+    if WEBAUTHN_CRED_FILE.exists():
+        try:
+            data = json.loads(WEBAUTHN_CRED_FILE.read_text())
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_webauthn_creds(data: dict) -> None:
+    WEBAUTHN_CRED_FILE.parent.mkdir(parents=True, exist_ok=True)
+    WEBAUTHN_CRED_FILE.write_text(json.dumps(data, indent=2))
+
+
+def _user_creds(username: str) -> list[dict]:
+    return _load_webauthn_creds().get(username.strip().lower(), [])
+
+
+def _role_for_username(username: str) -> str | None:
+    target = username.strip().lower()
+    for u in _configured_users():
+        if str(u.get("username", "")).strip().lower() == target:
+            return str(u.get("role", "viewer")).lower()
+    return None
+
+
+def _sign_blob(payload: str) -> str:
+    sig = hmac.new(AUTH_TOKEN.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(f"{payload}|{sig}".encode("utf-8")).decode("ascii")
+
+
+def _read_blob(raw: str) -> str | None:
+    try:
+        decoded = base64.urlsafe_b64decode(raw.encode("ascii")).decode("utf-8")
+        payload, sig = decoded.rsplit("|", 1)
+        expected = hmac.new(AUTH_TOKEN.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        return payload if secrets.compare_digest(sig, expected) else None
+    except Exception:
+        return None
+
+
+def _set_challenge_cookie(response, kind: str, challenge_b64: str, extra: str = "") -> None:
+    payload = f"{kind}|{extra}|{challenge_b64}" if extra else f"{kind}|{challenge_b64}"
+    response.set_cookie(
+        WA_CHALLENGE_COOKIE, _sign_blob(payload),
+        max_age=300, httponly=True, secure=True, samesite="lax", path="/",
+    )
+
+
+@app.get("/webauthn/status")
+def webauthn_status(request: Request):
+    user = _read_auth_cookie(request)
+    if not user:
+        return JSONResponse({"ok": False, "available": _WEBAUTHN_OK, "enrolled": False, "count": 0})
+    creds = _user_creds(user["username"])
+    return JSONResponse({
+        "ok": True,
+        "available": _WEBAUTHN_OK,
+        "enrolled": len(creds) > 0,
+        "count": len(creds),
+        "passkeys": [
+            {"label": c.get("label", ""), "created_at": c.get("created_at", ""), "last_used": c.get("last_used", "")}
+            for c in creds
+        ],
+    })
+
+
+@app.post("/webauthn/register/begin")
+def webauthn_register_begin(request: Request):
+    if not _WEBAUTHN_OK:
+        return JSONResponse({"ok": False, "error": "Passkeys unavailable on the server"}, status_code=503)
+    user = _read_auth_cookie(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Sign in first"}, status_code=401)
+    username = user["username"]
+    existing = _user_creds(username)
+    options = _webauthn.generate_registration_options(
+        rp_id=RP_ID,
+        rp_name=RP_NAME,
+        user_name=username,
+        user_id=hashlib.sha256(username.strip().lower().encode("utf-8")).digest(),
+        user_display_name=username,
+        authenticator_selection=AuthenticatorSelectionCriteria(
+            resident_key=ResidentKeyRequirement.PREFERRED,
+            user_verification=UserVerificationRequirement.PREFERRED,
+        ),
+        exclude_credentials=[
+            PublicKeyCredentialDescriptor(id=base64url_to_bytes(c["id"])) for c in existing
+        ],
+    )
+    response = JSONResponse({"ok": True, "options": json.loads(_webauthn.options_to_json(options))})
+    _set_challenge_cookie(response, "reg", bytes_to_base64url(options.challenge), username.strip().lower())
+    return response
+
+
+@app.post("/webauthn/register/complete")
+async def webauthn_register_complete(request: Request):
+    if not _WEBAUTHN_OK:
+        return JSONResponse({"ok": False, "error": "Passkeys unavailable on the server"}, status_code=503)
+    user = _read_auth_cookie(request)
+    if not user:
+        return JSONResponse({"ok": False, "error": "Sign in first"}, status_code=401)
+    username = user["username"]
+    payload = _read_blob(request.cookies.get(WA_CHALLENGE_COOKIE, ""))
+    parts = payload.split("|", 2) if payload else []
+    if len(parts) != 3 or parts[0] != "reg" or parts[1] != username.strip().lower():
+        return JSONResponse({"ok": False, "error": "Challenge expired — try again"}, status_code=400)
+    challenge_b64 = parts[2]
+    body = await request.json()
+    credential = body.get("credential") or body
+    label = (str(body.get("label") or "").strip() or "Passkey")[:60]
+    try:
+        verification = _webauthn.verify_registration_response(
+            credential=credential,
+            expected_challenge=base64url_to_bytes(challenge_b64),
+            expected_rp_id=RP_ID,
+            expected_origin=WEBAUTHN_ORIGIN,
+            require_user_verification=False,
+        )
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"Could not register passkey: {exc}"}, status_code=400)
+    all_creds = _load_webauthn_creds()
+    user_list = all_creds.setdefault(username.strip().lower(), [])
+    new_id = bytes_to_base64url(verification.credential_id)
+    if not any(c.get("id") == new_id for c in user_list):
+        user_list.append({
+            "id": new_id,
+            "public_key": bytes_to_base64url(verification.credential_public_key),
+            "sign_count": verification.sign_count,
+            "label": label,
+            "created_at": _utc_now(),
+            "last_used": "",
+        })
+        _save_webauthn_creds(all_creds)
+    response = JSONResponse({"ok": True, "count": len(user_list)})
+    response.delete_cookie(WA_CHALLENGE_COOKIE, path="/")
+    return response
+
+
+@app.post("/webauthn/authenticate/begin")
+def webauthn_authenticate_begin(request: Request):
+    if not _WEBAUTHN_OK:
+        return JSONResponse({"ok": False, "error": "Passkeys unavailable on the server"}, status_code=503)
+    options = _webauthn.generate_authentication_options(
+        rp_id=RP_ID,
+        user_verification=UserVerificationRequirement.PREFERRED,
+    )
+    response = JSONResponse({"ok": True, "options": json.loads(_webauthn.options_to_json(options))})
+    _set_challenge_cookie(response, "auth", bytes_to_base64url(options.challenge))
+    return response
+
+
+@app.post("/webauthn/authenticate/complete")
+async def webauthn_authenticate_complete(request: Request):
+    if not _WEBAUTHN_OK:
+        return JSONResponse({"ok": False, "error": "Passkeys unavailable on the server"}, status_code=503)
+    payload = _read_blob(request.cookies.get(WA_CHALLENGE_COOKIE, ""))
+    parts = payload.split("|", 1) if payload else []
+    if len(parts) != 2 or parts[0] != "auth":
+        return JSONResponse({"ok": False, "error": "Challenge expired — try again"}, status_code=400)
+    challenge_b64 = parts[1]
+    body = await request.json()
+    credential = body.get("credential") or body
+    cred_id = credential.get("id") or credential.get("rawId")
+    if not cred_id:
+        return JSONResponse({"ok": False, "error": "Malformed passkey response"}, status_code=400)
+    all_creds = _load_webauthn_creds()
+    owner, stored = None, None
+    for uname, items in all_creds.items():
+        for c in items:
+            if c.get("id") == cred_id:
+                owner, stored = uname, c
+                break
+        if owner:
+            break
+    if not stored:
+        return JSONResponse({"ok": False, "error": "This passkey isn't registered"}, status_code=400)
+    role = _role_for_username(owner)
+    if role is None:
+        return JSONResponse({"ok": False, "error": "Account no longer permitted"}, status_code=403)
+    try:
+        verification = _webauthn.verify_authentication_response(
+            credential=credential,
+            expected_challenge=base64url_to_bytes(challenge_b64),
+            expected_rp_id=RP_ID,
+            expected_origin=WEBAUTHN_ORIGIN,
+            credential_public_key=base64url_to_bytes(stored["public_key"]),
+            credential_current_sign_count=int(stored.get("sign_count", 0)),
+            require_user_verification=False,
+        )
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"Fingerprint check failed: {exc}"}, status_code=400)
+    stored["sign_count"] = verification.new_sign_count
+    stored["last_used"] = _utc_now()
+    _save_webauthn_creds(all_creds)
+    response = JSONResponse({"ok": True, "redirect": "/"})
+    response.set_cookie(AUTH_COOKIE, _sign_auth(owner, role), httponly=True, secure=True, samesite="lax")
+    response.delete_cookie(WA_CHALLENGE_COOKIE, path="/")
     return response
 
 
