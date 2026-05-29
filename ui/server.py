@@ -719,21 +719,6 @@ def _company_for_run(run_id: str) -> str:
     return "internal"
 
 
-@app.get("/runs/{run_id}/{filename}")
-def serve_run_file(request: Request, run_id: str, filename: str):
-    """Authenticated, company-scoped delivery of run evidence (video/screenshots).
-    Replaces the old open static mount — a user can only fetch files from runs
-    belonging to their own company; owner/admin can fetch any."""
-    target = (RUNS_DIR / run_id / filename).resolve()
-    if not target.is_relative_to(RUNS_DIR.resolve()) or not target.is_file():
-        return HTMLResponse("Not found", status_code=404)
-    user = _current_user(request)
-    if not _role_at_least(user.get("role", "viewer"), "admin"):
-        if _company_for_run(run_id) != (user.get("company") or "internal"):
-            return HTMLResponse("Not found", status_code=404)
-    return FileResponse(str(target))
-
-
 def _run_records(company: str | None = None) -> list[dict]:
     """All run records, newest first. If company is given, only that company's
     runs (owner/admin pass None to see everything)."""
@@ -761,6 +746,18 @@ templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # Run files (videos/screenshots) are NOT served by an open static mount — they're
 # served by the authenticated, company-scoped /runs/{run_id}/{filename} route below
 # so a user can only fetch evidence from their own company's runs.
+@app.get("/runs/{run_id}/{filename}")
+def serve_run_file(request: Request, run_id: str, filename: str):
+    """Authenticated, company-scoped delivery of run evidence (video/screenshots).
+    A user can only fetch files from runs in their own company; owner/admin any."""
+    target = (RUNS_DIR / run_id / filename).resolve()
+    if not target.is_relative_to(RUNS_DIR.resolve()) or not target.is_file():
+        return HTMLResponse("Not found", status_code=404)
+    user = _current_user(request)
+    if not _role_at_least(user.get("role", "viewer"), "admin"):
+        if _company_for_run(run_id) != (user.get("company") or "internal"):
+            return HTMLResponse("Not found", status_code=404)
+    return FileResponse(str(target))
 
 AUTH_COOKIE = "ex3_testops_auth"
 AUTH_TOKEN = os.getenv("TESTOPS_AUTH_TOKEN", "").strip()
