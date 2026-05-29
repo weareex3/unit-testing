@@ -96,6 +96,7 @@ def run_scenario(
     use_memory: bool = True,
     manual: bool = False,
     run_id_override: str | None = None,
+    forced_library_task: str = "",
 ) -> ScenarioResult:
     """Login to SF, run all (or first *max_steps*) steps, record video."""
     run_id = run_id_override or datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -168,7 +169,12 @@ def run_scenario(
                         _library = _json.loads(_lib_file.read_text())
                     except Exception:
                         pass
-            _library_steps = _library_task_match(steps, _library) if _library else {}
+            if forced_library_task and forced_library_task in _library:
+                _forced_entry = _library.get(forced_library_task) or {}
+                _library_steps = _forced_entry.get("steps") or {}
+                print(f"  [library] forced task: {forced_library_task}")
+            else:
+                _library_steps = _library_task_match(steps, _library) if _library else {}
             # library steps are keyed by step_id; build a positional fallback by index too
             _library_by_index = {str(i): cmd for i, cmd in enumerate(_library_steps.values())}
 

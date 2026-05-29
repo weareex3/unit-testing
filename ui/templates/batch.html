@@ -1,0 +1,187 @@
+{% extends "base.html" %}
+{% block title %}Run All - EX3 TestOps{% endblock %}
+
+{% block content %}
+<style>
+  .batch-shell { min-height:calc(100vh - 62px); margin:-34px -34px -52px; padding:34px; color:#f8f4ea; background:
+    radial-gradient(circle at 18% 14%, rgba(223,194,123,.24), transparent 28%),
+    radial-gradient(circle at 88% 2%, rgba(35,103,200,.2), transparent 30%),
+    linear-gradient(135deg, #11100e 0%, #171512 48%, #2a2116 100%); }
+  .batch-inner { max-width:1180px; margin:0 auto; }
+  .batch-top { display:flex; align-items:flex-end; justify-content:space-between; gap:18px; margin-bottom:22px; }
+  .batch-kicker { font-size:11px; font-weight:850; letter-spacing:.12em; text-transform:uppercase; color:#dfc27b; }
+  .batch-title { font-size:clamp(34px,5vw,64px); line-height:.95; letter-spacing:0; margin:8px 0 10px; font-weight:850; }
+  .batch-copy { color:rgba(248,244,234,.68); max-width:720px; font-size:14px; }
+  .launch-card { display:grid; grid-template-columns:minmax(0,1fr) 320px; gap:16px; margin-bottom:18px; }
+  .glass { background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.12); box-shadow:0 24px 80px rgba(0,0,0,.28); backdrop-filter:blur(22px); border-radius:22px; }
+  .scan-panel { padding:20px; min-height:180px; position:relative; overflow:hidden; }
+  .scan-panel::after { content:""; position:absolute; inset:0; background:linear-gradient(120deg, transparent 0%, rgba(255,255,255,.08) 48%, transparent 56%); transform:translateX(-100%); animation:sweep 3.4s infinite; pointer-events:none; }
+  @keyframes sweep { to { transform:translateX(100%); } }
+  .stat-stack { padding:18px; display:grid; gap:10px; }
+  .stat-line { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px 14px; border-radius:14px; background:rgba(255,255,255,.07); color:rgba(248,244,234,.7); }
+  .stat-line strong { color:#fff; font-size:18px; }
+  .var-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:10px; margin-top:16px; }
+  .var-grid label { color:rgba(248,244,234,.72); font-size:12px; font-weight:800; display:block; margin-bottom:5px; }
+  .dark-input { width:100%; min-height:42px; border-radius:12px; border:1px solid rgba(255,255,255,.14); background:rgba(0,0,0,.18); color:#fff; padding:10px 12px; outline:none; }
+  .dark-input:focus { border-color:rgba(223,194,123,.62); box-shadow:0 0 0 4px rgba(223,194,123,.12); }
+  .btn-launch { min-height:46px; border:0; border-radius:14px; padding:0 20px; font-weight:850; color:#111; background:linear-gradient(135deg,#f4d88a,#b9954f); box-shadow:0 16px 42px rgba(185,149,79,.28); }
+  .run-board { display:grid; gap:10px; }
+  .run-row { display:grid; grid-template-columns:46px minmax(0,1fr) 128px 130px 110px; gap:14px; align-items:center; padding:14px; border-radius:18px; background:rgba(255,255,255,.09); border:1px solid rgba(255,255,255,.1); }
+  .orb { width:34px; height:34px; border-radius:50%; display:grid; place-items:center; font-size:12px; font-weight:850; background:rgba(255,255,255,.1); color:rgba(248,244,234,.72); }
+  .run-row.running .orb { background:#2367c8; color:#fff; box-shadow:0 0 0 8px rgba(35,103,200,.15); animation:pulse 1.4s infinite; }
+  .run-row.passed .orb { background:#1f9d5a; color:#fff; }
+  .run-row.failed .orb, .run-row.paused .orb { background:#c9493d; color:#fff; }
+  @keyframes pulse { 50% { box-shadow:0 0 0 13px rgba(35,103,200,.03); } }
+  .run-name { font-weight:850; color:#fff; }
+  .run-meta { color:rgba(248,244,234,.54); font-size:12px; margin-top:2px; }
+  .pill { justify-self:start; border-radius:999px; padding:5px 10px; font-size:11px; font-weight:850; text-transform:capitalize; background:rgba(255,255,255,.1); color:rgba(248,244,234,.72); }
+  .passed .pill { background:rgba(31,157,90,.16); color:#9ff0c5; }
+  .running .pill { background:rgba(35,103,200,.18); color:#a9cbff; }
+  .failed .pill, .paused .pill { background:rgba(201,73,61,.18); color:#ffb0a9; }
+  .progress-track { height:7px; border-radius:999px; background:rgba(255,255,255,.1); overflow:hidden; }
+  .progress-fill { height:100%; width:0%; background:linear-gradient(90deg,#dfc27b,#1f9d5a); transition:.35s ease; }
+  .video-link { color:#dfc27b; font-size:12px; font-weight:800; }
+  @media (max-width:920px) {
+    .launch-card { grid-template-columns:1fr; }
+    .run-row { grid-template-columns:38px minmax(0,1fr); }
+    .run-row > .pill, .run-row > .progress-track, .run-row > .video-link { grid-column:2; }
+    .var-grid { grid-template-columns:1fr; }
+  }
+</style>
+
+<div class="batch-shell">
+  <div class="batch-inner">
+    <div class="batch-top">
+      <div>
+        <a href="/?script={{ script|urlencode }}" style="color:rgba(248,244,234,.62);font-size:12px;font-weight:800;">Back to script</a>
+        <div class="batch-kicker" style="margin-top:18px;">Run all command centre</div>
+        <h1 class="batch-title">{{ selected_name }}</h1>
+        <p class="batch-copy">Runs the selected script only, one complete scenario at a time. Shared opening steps are ignored unless the whole scenario matches a saved task.</p>
+      </div>
+      <button id="start-batch" class="btn-launch" type="button">Start full run</button>
+    </div>
+
+    <div class="launch-card">
+      <section class="glass scan-panel">
+        <div class="batch-kicker">Pre-flight</div>
+        <h2 id="plan-title" style="font-size:24px;margin:8px 0 6px;">Scanning memory...</h2>
+        <p id="plan-copy" style="color:rgba(248,244,234,.62);font-size:13px;">Checking every scenario against the task library before launch.</p>
+        <div id="var-box" class="var-grid"></div>
+      </section>
+      <aside class="glass stat-stack">
+        <div class="stat-line"><span>Scenarios</span><strong id="stat-total">{{ stats.total }}</strong></div>
+        <div class="stat-line"><span>Completed</span><strong id="stat-complete">0</strong></div>
+        <div class="stat-line"><span>Needs training</span><strong id="stat-training">0</strong></div>
+      </aside>
+    </div>
+
+    <section class="glass" style="padding:14px;">
+      <div id="run-board" class="run-board">
+        <div style="padding:24px;color:rgba(248,244,234,.6);font-size:13px;">Preparing the run board...</div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+const SCRIPT_KEY = {{ script|tojson }};
+let plan = null;
+let batchId = null;
+let pollTimer = null;
+
+function esc(v){ return String(v || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function renderRows(items) {
+  const board = document.getElementById('run-board');
+  board.innerHTML = (items || []).map((item, idx) => {
+    const status = item.status || 'queued';
+    const total = item.steps || 0;
+    const done = item.steps_logged || item.covered_count || 0;
+    const pct = total ? Math.min(100, Math.round(done / total * 100)) : 0;
+    const video = item.video_url ? `<a class="video-link" href="${esc(item.video_url)}" target="_blank">Video ready</a>` : (status === 'paused' || status === 'failed' ? `<a class="video-link" href="/scenario/${encodeURIComponent(item.scenario_id)}?script=${encodeURIComponent(SCRIPT_KEY)}">Train step</a>` : '<span class="video-link" style="opacity:.35;">Waiting</span>');
+    return `<div class="run-row ${esc(status)}">
+      <div class="orb">${idx + 1}</div>
+      <div><div class="run-name">${esc(item.name)}</div><div class="run-meta">${esc(item.scenario_id)} · ${esc(item.role || '')} · ${total} steps${item.matched_task ? ' · memory: '+esc(item.matched_task) : ''}</div></div>
+      <span class="pill">${esc(status.replace('_',' '))}</span>
+      <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
+      ${video}
+    </div>`;
+  }).join('');
+}
+
+function renderStats(batch) {
+  const items = batch ? batch.items : (plan ? plan.items : []);
+  document.getElementById('stat-total').textContent = items.length || 0;
+  document.getElementById('stat-complete').textContent = items.filter(i => i.status === 'passed').length;
+  document.getElementById('stat-training').textContent = items.filter(i => ['failed','paused','needs_training','error'].includes(i.status)).length;
+}
+
+async function loadPlan() {
+  const res = await fetch('/api/batch/plan?script=' + encodeURIComponent(SCRIPT_KEY || ''));
+  plan = await res.json();
+  if (!plan.ok) {
+    document.getElementById('plan-title').textContent = 'Could not prepare';
+    document.getElementById('plan-copy').textContent = plan.error || 'Select a script first.';
+    return;
+  }
+  const matched = plan.items.filter(i => i.matched_task).length;
+  document.getElementById('plan-title').textContent = `${matched} of ${plan.total} scenarios have memory`;
+  document.getElementById('plan-copy').textContent = 'Add any reusable values once, then launch the whole script.';
+  document.getElementById('var-box').innerHTML = (plan.variables || []).map(v => `
+    <div>
+      <label>${esc(v.label)}</label>
+      <input class="dark-input" data-var="${esc(v.key)}" placeholder="Type ${esc(v.label.toLowerCase())}" />
+    </div>
+  `).join('');
+  renderRows(plan.items);
+  renderStats();
+}
+
+async function startBatch() {
+  if (!plan || !plan.ok) return;
+  const answers = {};
+  document.querySelectorAll('[data-var]').forEach(inp => {
+    if (inp.value.trim()) answers[inp.dataset.var] = inp.value.trim();
+  });
+  const btn = document.getElementById('start-batch');
+  btn.disabled = true;
+  btn.textContent = 'Launching...';
+  const res = await fetch('/api/batch/start', {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify({script: SCRIPT_KEY, answers})
+  });
+  const data = await res.json();
+  if (!data.ok) {
+    btn.disabled = false;
+    btn.textContent = 'Start full run';
+    document.getElementById('plan-copy').textContent = data.error || 'Launch failed.';
+    return;
+  }
+  batchId = data.batch_id;
+  btn.textContent = 'Running';
+  pollTimer = setInterval(pollBatch, 1800);
+  pollBatch();
+}
+
+async function pollBatch() {
+  if (!batchId) return;
+  const res = await fetch('/api/batch/' + encodeURIComponent(batchId));
+  const data = await res.json();
+  if (!data.ok) return;
+  const batch = data.batch;
+  renderRows(batch.items || []);
+  renderStats(batch);
+  const running = batch.items.find(i => i.status === 'running' || i.status === 'paused' || i.status === 'confirming');
+  document.getElementById('plan-title').textContent = batch.status === 'completed' ? 'Run complete' : batch.status === 'needs_training' ? 'Training needed' : 'Automation in progress';
+  document.getElementById('plan-copy').textContent = running ? `Current: ${running.name}` : (batch.status === 'completed' ? 'Every scenario in this script has finished.' : 'Waiting for the next scenario...');
+  if (['completed','needs_training','error'].includes(batch.status)) {
+    clearInterval(pollTimer);
+    document.getElementById('start-batch').textContent = batch.status === 'completed' ? 'Complete' : 'Review training';
+  }
+}
+
+document.getElementById('start-batch').addEventListener('click', startBatch);
+loadPlan();
+</script>
+{% endblock %}

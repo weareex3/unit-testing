@@ -109,6 +109,7 @@ _restore_feedback_from_approved()
 
 # In-memory run state: scenario_id -> {status, run_id, passed?, error?}
 _ACTIVE_RUNS: dict[str, dict] = {}
+_BATCH_RUNS: dict[str, dict] = {}
 
 # Pause/resume state: scenario_id -> {event, fix}
 _PAUSE_EVENTS: dict[str, threading.Event] = {}
@@ -306,6 +307,7 @@ VALID_STATUSES = {"pass", "fail", "blocked", "not_tested"}
 FEEDBACK_FILE = STORAGE_DIR / "step_feedback.json"
 APPROVED_FILE = STORAGE_DIR / "approved.json"
 LIBRARY_FILE = _DATA_ROOT / "storage" / "global" / "step_library.json"
+MATCH_CACHE_FILE = _DATA_ROOT / "storage" / "global" / "match_cache.json"
 
 
 # ── Global step library ───────────────────────────────────────────────────────
@@ -320,7 +322,38 @@ def _load_library() -> dict:
 
 
 def _save_library(data: dict) -> None:
+    LIBRARY_FILE.parent.mkdir(parents=True, exist_ok=True)
     LIBRARY_FILE.write_text(json.dumps(data, indent=2))
+
+
+def _load_match_cache() -> dict:
+    if MATCH_CACHE_FILE.exists():
+        try:
+            data = json.loads(MATCH_CACHE_FILE.read_text())
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            return {}
+    return {}
+
+
+def _save_match_cache(data: dict) -> None:
+    MATCH_CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+    MATCH_CACHE_FILE.write_text(json.dumps(data, indent=2))
+
+
+def _cache_matches(script_key: str, results: list[dict], library_size: int) -> None:
+    if not script_key:
+        return
+    cache = _load_match_cache()
+    cache[script_key] = {
+        "matched_at": _utc_now(),
+        "library_size": library_size,
+        "matched": sum(1 for r in results if r.get("matched_to")),
+        "total": len(results),
+        "results": results,
+    }
+    _save_match_cache(cache)
 
 
 def _git_push_library():
@@ -724,6 +757,8 @@ def _minimum_role_for_write(path: str, method: str) -> str:
         return "lead"
     if method in SAFE_METHODS:
         return "viewer"
+    if path.startswith("/api/library/rescan"):
+        return "lead"
     if path.startswith("/api/scenario/") or path.startswith("/api/library"):
         return "lead"
     if (
@@ -1598,7 +1633,15 @@ def _match_script_to_library(scenarios, library: dict) -> dict:
     tasks = {n: e for n, e in library.items() if isinstance(e, dict) and e.get("steps")}
     if not api_key or not tasks or not scenarios:
         return result
-    task_lines = "\n".join(f"- {n}: {e.get('description', n)}" for n, e in tasks.items())
+    task_lines = []
+    for n, e in tasks.items():
+        step_desc = _task_step_descriptions(e)
+        known_steps = " | ".join(step_desc[:10]) if step_desc else ""
+        saved_count = len(e.get("steps") or {})
+        task_lines.append(
+            f"- {n}: goal = {e.get('description', n)} | saved commands = {saved_count} step(s)"
+            + (f" | step meaning = {known_steps}" if known_steps else "")
+        )
     scen_lines = []
     for s in scenarios:
         steps = "; ".join((st.action or "") for st in s.steps[:8])
@@ -1616,7 +1659,7 @@ def _match_script_to_library(scenarios, library: dict) -> dict:
                 "module picker on the way to somewhere else) are NOT a match. Only match when the "
                 "scenario's overall purpose and sequence are essentially the same as the known task. "
                 "When unsure, do NOT match.\n\n"
-                f"Known tasks:\n{task_lines}\n\n"
+                "Known tasks:\n" + "\n".join(task_lines) + "\n\n"
                 "Scenarios:\n" + "\n".join(scen_lines) + "\n\n"
                 "Reply with ONLY a JSON object mapping each scenario id to an object "
                 '{"match": "<exact known task name>" or null, "reason": "<one short sentence>"}. '
@@ -1667,6 +1710,36 @@ def _task_step_descriptions(entry: dict) -> list:
         if sc:
             return _step_descriptions_for_scenario(sc)
     return []
+
+
+def _library_entry_variables(entry: dict) -> list[str]:
+    import re
+    all_cmds = "\n".join((entry.get("steps") or {}).values()) if isinstance(entry, dict) else ""
+    return sorted(set(re.findall(r"\{\{(\w+)\}\}", all_cmds)))
+
+
+def _enrich_library_entries(library: dict) -> tuple[dict, int]:
+    """Backfill older task-library entries with rich step descriptions and
+    has_learned_commands so future matching sees the full process."""
+    changed = 0
+    scenarios = {s.scenario_id: s for s in _load_scenarios()}
+    for name, entry in list(library.items()):
+        if not isinstance(entry, dict):
+            continue
+        sid = entry.get("scenario_id")
+        scenario = scenarios.get(sid) if sid else None
+        if scenario:
+            if not entry.get("step_actions"):
+                entry["step_actions"] = [st.action for st in scenario.steps]
+                changed += 1
+            if not entry.get("step_descriptions"):
+                entry["step_descriptions"] = _step_descriptions_for_scenario(scenario)
+                changed += 1
+        if "has_learned_commands" not in entry:
+            entry["has_learned_commands"] = bool(entry.get("steps"))
+            changed += 1
+        library[name] = entry
+    return library, changed
 
 
 def _ai_task_description(scenario, user_note: str) -> str:
@@ -1783,7 +1856,233 @@ def api_coverage(request: Request, scenario_id: str, script: str = ""):
         "total": total,
         "confidence": round(covered_count / total * 100) if total else 0,
         "library_tasks": [n for n, e in library.items() if isinstance(e, dict) and e.get("steps")],
+        "task_variables": {
+            n: _library_entry_variables(e)
+            for n, e in library.items()
+            if isinstance(e, dict) and e.get("steps")
+        },
     })
+
+
+@app.get("/api/batch/plan")
+def api_batch_plan(request: Request, script: str = ""):
+    scenarios = _load_scenarios(script or None)
+    if not script or not scenarios:
+        return JSONResponse({"ok": False, "error": "Select a script before running all."}, status_code=400)
+    library = _load_step_library()
+    items = []
+    variables: dict[str, str] = {}
+    for scenario in scenarios:
+        cov = _coverage_for_scenario(scenario, library)
+        cov_steps = cov.get("coverage", {}) or {}
+        total = len(scenario.steps)
+        covered = sum(1 for st in scenario.steps if cov_steps.get(st.step_id))
+        matched = cov.get("matched_task")
+        task_vars = _library_entry_variables(library.get(matched, {})) if matched else []
+        for var in task_vars:
+            variables[var] = var.replace("_", " ").title()
+        items.append({
+            "scenario_id": scenario.scenario_id,
+            "name": scenario.name,
+            "role": scenario.role,
+            "module": scenario.module,
+            "steps": total,
+            "matched_task": matched,
+            "confidence": round(covered / total * 100) if total else 0,
+            "covered_count": covered,
+            "variables": task_vars,
+            "status": "queued",
+        })
+    return JSONResponse({
+        "ok": True,
+        "script": script,
+        "total": len(items),
+        "items": items,
+        "variables": [{"key": k, "label": v} for k, v in variables.items()],
+    })
+
+
+def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers: dict, user: dict) -> None:
+    run_id = f"{batch_id}_{scenario.scenario_id}"
+    item.update({"status": "running", "run_id": run_id, "started_at": _utc_now(), "error": ""})
+    _ACTIVE_RUNS[scenario.scenario_id] = {
+        "status": "running",
+        "run_id": run_id,
+        "supervised": False,
+        "live_mode": False,
+        "user": user,
+        "script": script,
+    }
+    _append_audit(
+        run_id,
+        "run_started",
+        "Batch run started",
+        scenario_id=scenario.scenario_id,
+        user=user,
+        status="running",
+        details={"script": script, "batch_id": batch_id, "answers": answers, "step_count": len(scenario.steps)},
+    )
+    step_log_file = RUNS_DIR / f"{scenario.scenario_id}_last_run.json"
+    steps_log: list[dict] = []
+
+    def _write_step_log(run_status: str) -> None:
+        try:
+            step_log_file.write_text(json.dumps({"run_id": run_id, "status": run_status, "steps": steps_log}, indent=2))
+        except Exception:
+            pass
+
+    def _step_done(step_id, passed, error, screenshot_url):
+        steps_log.append({
+            "step_id": step_id,
+            "passed": passed,
+            "error": error or "",
+            "screenshot_url": screenshot_url or "",
+        })
+        item["steps_logged"] = len(steps_log)
+        item["steps_passed"] = sum(1 for s in steps_log if s.get("passed"))
+        item["current_step"] = step_id
+        _write_step_log("running")
+        _append_audit(
+            run_id,
+            "step_completed" if passed else "step_failed",
+            "Step passed" if passed else "Step failed",
+            scenario_id=scenario.scenario_id,
+            user=user,
+            step_id=step_id,
+            status="pass" if passed else "fail",
+            details={"error": error or "", "screenshot_url": screenshot_url or ""},
+        )
+
+    result = run_scenario(
+        scenario,
+        runs_root=RUNS_DIR,
+        headless=True,
+        pause_callback=lambda **kw: _pause_callback(**kw),
+        initial_context=answers,
+        step_done_callback=_step_done,
+        check_pause_fn=lambda sid: _FORCE_PAUSE.pop(sid, False),
+        live_mode=False,
+        use_memory=True,
+        manual=False,
+        run_id_override=run_id,
+    )
+    videos = sorted((RUNS_DIR / run_id).glob("*.webm"))
+    item["video_url"] = f"/runs/{run_id}/{videos[0].name}" if videos else ""
+    item["ended_at"] = _utc_now()
+    item["steps_logged"] = len(steps_log)
+    item["steps_passed"] = sum(1 for s in steps_log if s.get("passed"))
+    item["status"] = "passed" if result.passed else "failed"
+    _write_step_log("done" if result.passed else "failed")
+    _append_audit(
+        run_id,
+        "run_completed" if result.passed else "run_failed",
+        "Batch scenario completed" if result.passed else "Batch scenario stopped before completion",
+        scenario_id=scenario.scenario_id,
+        user=user,
+        status="passed" if result.passed else "failed",
+        details={"batch_id": batch_id, "steps_logged": len(steps_log), "video_url": item["video_url"]},
+    )
+    _ACTIVE_RUNS[scenario.scenario_id] = {
+        "status": "done" if result.passed else "error",
+        "run_id": run_id,
+        "passed": result.passed,
+        "user": user,
+        "script": script,
+    }
+
+
+@app.post("/api/batch/start")
+async def api_batch_start(request: Request):
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    script = str(body.get("script", "")).strip()
+    answers = body.get("answers") if isinstance(body.get("answers"), dict) else {}
+    scenarios = _load_scenarios(script or None)
+    if not script or not scenarios:
+        return JSONResponse({"ok": False, "error": "Select a script before running all."}, status_code=400)
+    user = _current_user(request)
+    batch_id = datetime.utcnow().strftime("B%Y%m%dT%H%M%SZ")
+    items = [
+        {
+            "scenario_id": s.scenario_id,
+            "name": s.name,
+            "role": s.role,
+            "module": s.module,
+            "steps": len(s.steps),
+            "steps_logged": 0,
+            "steps_passed": 0,
+            "status": "queued",
+            "run_id": "",
+            "video_url": "",
+            "error": "",
+        }
+        for s in scenarios
+    ]
+    _BATCH_RUNS[batch_id] = {
+        "id": batch_id,
+        "script": script,
+        "status": "running",
+        "started_at": _utc_now(),
+        "ended_at": "",
+        "user": user,
+        "total": len(items),
+        "current_index": 0,
+        "items": items,
+    }
+
+    def _run_batch():
+        batch = _BATCH_RUNS[batch_id]
+        try:
+            for index, scenario in enumerate(scenarios):
+                batch["current_index"] = index
+                item = batch["items"][index]
+                _batch_run_record(batch_id, item, scenario, script, answers, user)
+                if item["status"] != "passed":
+                    batch["status"] = "needs_training"
+                    batch["ended_at"] = _utc_now()
+                    return
+            batch["status"] = "completed"
+            batch["ended_at"] = _utc_now()
+        except Exception as exc:
+            batch["status"] = "error"
+            batch["ended_at"] = _utc_now()
+            batch["error"] = str(exc)
+
+    threading.Thread(target=_run_batch, daemon=True).start()
+    return JSONResponse({"ok": True, "batch_id": batch_id})
+
+
+@app.get("/api/batch/{batch_id}")
+def api_batch_status(batch_id: str):
+    batch = _BATCH_RUNS.get(batch_id)
+    if not batch:
+        return JSONResponse({"ok": False, "error": "Batch not found"}, status_code=404)
+    for item in batch.get("items", []):
+        active = _ACTIVE_RUNS.get(item.get("scenario_id", ""), {})
+        if active.get("run_id") == item.get("run_id") and active.get("status") in ("paused", "confirming"):
+            item["status"] = active["status"]
+            item["paused_step"] = active.get("paused_step") or active.get("confirming_step", "")
+            item["screenshot_url"] = active.get("screenshot_url", "")
+    return JSONResponse({"ok": True, "batch": batch})
+
+
+@app.get("/batch", response_class=HTMLResponse)
+def batch_page(request: Request, script: str = ""):
+    selected_name = next((w["name"] for w in _workbooks() if w["key"] == script), script or "Run all")
+    return templates.TemplateResponse(
+        request=request,
+        name="batch.html",
+        context={
+            "script": script,
+            "selected_name": selected_name,
+            "stats": _stats(script or None),
+            "client_id": CLIENT_ID,
+            "current_user": _current_user(request),
+            "active": "dashboard",
+        },
+    )
 
 
 @app.get("/api/match")
@@ -1792,22 +2091,92 @@ def api_match(request: Request, script: str = ""):
     if not scenarios:
         return JSONResponse({"ok": False, "error": "No scenarios found for this script"})
     library = _load_step_library()
+    library, enriched = _enrich_library_entries(library)
+    if enriched:
+        _save_library(library)
     matches = _match_script_to_library(scenarios, library)
-    results = [
-        {
+    results = []
+    for s in scenarios:
+        match = matches.get(s.scenario_id) or {}
+        cov = _coverage_for_scenario(s, library)
+        cov_steps = cov.get("coverage", {}) or {}
+        total_steps = len(s.steps)
+        covered_count = sum(1 for st in s.steps if cov_steps.get(st.step_id))
+        confidence = round(covered_count / total_steps * 100) if total_steps else 0
+        results.append({
             "scenario_id": s.scenario_id,
             "name": s.name,
-            "matched_to": (matches.get(s.scenario_id) or {}).get("match"),
-            "reason": (matches.get(s.scenario_id) or {}).get("reason", ""),
-        }
-        for s in scenarios
-    ]
+            "matched_to": cov.get("matched_task") or match.get("match"),
+            "reason": cov.get("reason") or match.get("reason", ""),
+            "confidence": confidence,
+            "covered_count": covered_count,
+            "total_steps": total_steps,
+        })
+    library_size = len([e for e in library.values() if isinstance(e, dict) and e.get("steps")])
+    _cache_matches(script or "__all__", results, library_size)
     return JSONResponse({
         "ok": True,
         "total": len(results),
         "matched": sum(1 for r in results if r["matched_to"]),
-        "library_size": len([e for e in library.values() if isinstance(e, dict) and e.get("steps")]),
+        "library_size": library_size,
+        "enriched": enriched,
+        "cached": True,
         "results": results,
+    })
+
+
+@app.post("/api/library/rescan")
+def rescan_library(request: Request):
+    """Refresh library metadata and re-run matching for every existing workbook.
+
+    This makes newly saved library tasks apply to scripts that were uploaded
+    before the task existed.
+    """
+    library = _load_library()
+    library, enriched = _enrich_library_entries(library)
+    if enriched:
+        _save_library(library)
+    library_size = len([e for e in library.values() if isinstance(e, dict) and e.get("steps")])
+    scanned = []
+    total_matched = 0
+    for wb in _workbooks():
+        key = wb["key"]
+        scenarios = _load_scenarios(key)
+        if not scenarios:
+            continue
+        matches = _match_script_to_library(scenarios, library)
+        results = []
+        for s in scenarios:
+            match = matches.get(s.scenario_id) or {}
+            cov = _coverage_for_scenario(s, library)
+            cov_steps = cov.get("coverage", {}) or {}
+            total_steps = len(s.steps)
+            covered_count = sum(1 for st in s.steps if cov_steps.get(st.step_id))
+            results.append({
+                "scenario_id": s.scenario_id,
+                "name": s.name,
+                "matched_to": cov.get("matched_task") or match.get("match"),
+                "reason": cov.get("reason") or match.get("reason", ""),
+                "confidence": round(covered_count / total_steps * 100) if total_steps else 0,
+                "covered_count": covered_count,
+                "total_steps": total_steps,
+            })
+        matched_count = sum(1 for r in results if r["matched_to"])
+        total_matched += matched_count
+        _cache_matches(key, results, library_size)
+        scanned.append({
+            "script": key,
+            "name": wb["name"],
+            "total": len(results),
+            "matched": matched_count,
+        })
+    return JSONResponse({
+        "ok": True,
+        "library_size": library_size,
+        "enriched": enriched,
+        "scripts_scanned": len(scanned),
+        "total_matched": total_matched,
+        "scanned": scanned,
     })
 
 
@@ -2008,10 +2377,10 @@ def run_audit_detail(request: Request, run_id: str):
 
 
 @app.get("/api/analyse/{scenario_id}")
-def analyse_scenario_route(scenario_id: str):
+def analyse_scenario_route(scenario_id: str, script: str = ""):
     """Return pre-run analysis: data dependencies and questions to ask."""
     from engine.scenario_analyst import analyse_scenario
-    scenarios = _load_scenarios()
+    scenarios = _load_scenarios(script or None)
     scenario = next((s for s in scenarios if s.scenario_id == scenario_id), None)
     if not scenario:
         raise HTTPException(404, "Scenario not found")
@@ -2054,21 +2423,15 @@ def analyse_scenario_route(scenario_id: str):
 
 @app.post("/api/run/{scenario_id}")
 async def trigger_run(scenario_id: str, request: Request):
-    scenarios = _load_scenarios()
-    scenario = next((s for s in scenarios if s.scenario_id == scenario_id), None)
-    if not scenario:
-        raise HTTPException(404, "Scenario not found")
-
-    if _ACTIVE_RUNS.get(scenario_id, {}).get("status") == "running":
-        return JSONResponse({"ok": False, "reason": "already running"}, status_code=409)
-
     # Accept optional pre-run answers (e.g. proxy_name, candidate_name) + supervised flag
     try:
         body = await request.json()
-        pre_answers = {k: v for k, v in body.items() if k not in ("supervised", "live", "_lib_vars", "script")} if isinstance(body, dict) else {}
+        pre_answers = {k: v for k, v in body.items() if k not in ("supervised", "live", "_lib_vars", "script", "force_library_task", "run_fresh")} if isinstance(body, dict) else {}
         supervised = bool(body.get("supervised", False)) if isinstance(body, dict) else False
         live_mode = bool(body.get("live", False)) if isinstance(body, dict) else False
         script_key = str(body.get("script", "")).strip() if isinstance(body, dict) else ""
+        force_library_task = str(body.get("force_library_task", "")).strip() if isinstance(body, dict) else ""
+        run_fresh = bool(body.get("run_fresh", False)) if isinstance(body, dict) else False
         # Library template variables (e.g. target_employee_name) — merge into context
         lib_vars = body.get("_lib_vars") if isinstance(body, dict) else None
         if isinstance(lib_vars, dict):
@@ -2079,6 +2442,16 @@ async def trigger_run(scenario_id: str, request: Request):
         live_mode = False
         lib_vars = None
         script_key = ""
+        force_library_task = ""
+        run_fresh = False
+
+    scenarios = _load_scenarios(script_key or None)
+    scenario = next((s for s in scenarios if s.scenario_id == scenario_id), None)
+    if not scenario:
+        raise HTTPException(404, "Scenario not found")
+
+    if _ACTIVE_RUNS.get(scenario_id, {}).get("status") == "running":
+        return JSONResponse({"ok": False, "reason": "already running"}, status_code=409)
 
     user = _current_user(request)
     run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -2094,6 +2467,8 @@ async def trigger_run(scenario_id: str, request: Request):
             "mode": "step-by-step" if supervised else ("live-control" if live_mode else "automated"),
             "answers": pre_answers,
             "library_variables_used": bool(lib_vars),
+            "force_library_task": force_library_task,
+            "run_fresh": run_fresh,
             "step_count": len(scenario.steps),
             "script": script_key,
         },
@@ -2148,9 +2523,10 @@ async def trigger_run(scenario_id: str, request: Request):
                 check_pause_fn=_check_pause,
                 step_confirm_callback=_step_confirm if supervised else None,
                 live_mode=live_mode,
-                use_memory=not (supervised or live_mode),
+                use_memory=not (supervised or live_mode or run_fresh),
                 manual=(supervised or live_mode),
                 run_id_override=run_id,
+                forced_library_task=force_library_task,
             )
             _write_step_log(steps_log, "done")
             failed_steps = [s for s in steps_log if not s.get("passed")]
@@ -3042,6 +3418,16 @@ def library_page(request: Request):
         st = _stats()
     except Exception:
         st = {"total": 0, "passing": 0, "failing": 0, "blocked": 0}
+    return templates.TemplateResponse(
+        request=request,
+        name="library.html",
+        context={
+            "stats": st,
+            "client_id": CLIENT_ID,
+            "current_user": _current_user(request),
+            "active": "library",
+        },
+    )
     html = f"""<!DOCTYPE html>
 <html lang="en">
 <head>
@@ -3192,18 +3578,13 @@ def library_match(scenario_id: str):
 
     all_text = " ".join(s.action.lower() for s in scenario.steps)
 
-    def _entry_variables(entry: dict) -> list[str]:
-        import re
-        all_cmds = "\n".join(entry.get("steps", {}).values())
-        return sorted(set(re.findall(r'\{\{(\w+)\}\}', all_cmds)))
-
     # Keyword match first — fast and reliable for demo
     for task_name, entry in library.items():
         if not isinstance(entry, dict) or not entry.get("steps"):
             continue
         keywords = entry.get("keywords", [])
         if any(kw.lower() in all_text for kw in keywords):
-            return JSONResponse({"match": task_name, "description": entry.get("description", ""), "variables": _entry_variables(entry)})
+            return JSONResponse({"match": task_name, "description": entry.get("description", ""), "variables": _library_entry_variables(entry)})
 
     # Claude fallback for tasks without keywords
     task_lines = "\n".join(
@@ -3230,7 +3611,7 @@ def library_match(scenario_id: str):
         )
         result = msg.content[0].text.strip()
         if result != "NO_MATCH" and result in library:
-            return JSONResponse({"match": result, "description": library[result].get("description", ""), "variables": _entry_variables(library[result])})
+            return JSONResponse({"match": result, "description": library[result].get("description", ""), "variables": _library_entry_variables(library[result])})
     except Exception as exc:
         print(f"[library match] error: {exc}")
     return JSONResponse({"match": None})

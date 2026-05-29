@@ -54,6 +54,18 @@
   .evidence-video { width:100%; border-radius:14px; background:#11100e; box-shadow:0 14px 34px rgba(17,16,14,.12); }
   .empty-evidence { padding:38px 18px; text-align:center; background:rgba(21,19,17,.045); border-radius:14px; border:1px dashed rgba(21,19,17,.12); }
   .modal-card { background:#fbfaf7; border-radius:22px; padding:28px; width:500px; max-width:92vw; box-shadow:0 24px 80px rgba(0,0,0,.24); border:1px solid rgba(255,255,255,.68); }
+  .preflight-overlay { display:none; position:fixed; inset:0; z-index:9999; background:rgba(0,0,0,.46); backdrop-filter:blur(8px); align-items:center; justify-content:center; padding:18px; }
+  .preflight-card { width:min(760px,96vw); max-height:90vh; overflow:auto; background:#fbfaf7; border-radius:22px; padding:24px; box-shadow:0 24px 80px rgba(0,0,0,.24); border:1px solid rgba(255,255,255,.68); }
+  .preflight-top { display:flex; justify-content:space-between; gap:18px; align-items:flex-start; margin-bottom:14px; }
+  .confidence-ring { width:74px; height:74px; border-radius:50%; display:grid; place-items:center; background:conic-gradient(var(--green) calc(var(--pct,0) * 1%), rgba(21,19,17,.08) 0); }
+  .confidence-ring span { width:58px; height:58px; border-radius:50%; background:#fbfaf7; display:grid; place-items:center; font-weight:800; color:var(--ink); }
+  .preflight-match { padding:14px; border-radius:14px; background:rgba(185,149,79,.1); border:1px solid rgba(185,149,79,.22); margin-bottom:14px; }
+  .preflight-steps { display:grid; gap:7px; margin:12px 0 16px; }
+  .preflight-step { display:grid; grid-template-columns:96px minmax(0,1fr); gap:10px; padding:10px 12px; border-radius:12px; background:rgba(255,255,255,.7); border:1px solid var(--line); }
+  .preflight-state { font-size:11px; font-weight:800; text-transform:uppercase; letter-spacing:.04em; }
+  .preflight-known { color:var(--green); }
+  .preflight-gap { color:var(--amber); }
+  .preflight-action { font-size:12px; color:var(--ink); line-height:1.45; }
   @media (max-width:1100px) {
     .scenario-hero-grid, .run-layout { grid-template-columns:1fr; }
     .cockpit-grid { grid-template-columns:1fr; }
@@ -246,6 +258,36 @@
       {% endfor %}
     </div>
 
+    </div>
+  </div>
+</div>
+
+<!-- Pre-run memory flash -->
+<div id="preflight-modal" class="preflight-overlay">
+  <div class="preflight-card">
+    <div class="preflight-top">
+      <div>
+        <span class="section-label">Before run</span>
+        <h3 style="font-size:22px;font-weight:800;color:var(--ink);margin:4px 0 6px;">Memory check</h3>
+        <p id="preflight-summary" style="font-size:13px;color:var(--muted);margin:0;">Checking saved tasks...</p>
+      </div>
+      <div class="confidence-ring" id="preflight-ring" style="--pct:0"><span id="preflight-confidence">0%</span></div>
+    </div>
+    <div class="preflight-match">
+      <div style="font-size:12px;color:var(--muted);margin-bottom:3px;">Matched task</div>
+      <div id="preflight-task" style="font-size:16px;font-weight:800;color:var(--ink);">None yet</div>
+      <div id="preflight-reason" style="font-size:12px;color:var(--muted);margin-top:5px;"></div>
+    </div>
+    <label style="display:block;font-size:12px;font-weight:800;color:var(--ink);margin-bottom:6px;">Force a saved task</label>
+    <select id="preflight-force-task" class="input" style="margin-bottom:14px;">
+      <option value="">Use best match</option>
+    </select>
+    <div id="preflight-vars" style="display:none;margin:0 0 14px;"></div>
+    <div id="preflight-steps" class="preflight-steps"></div>
+    <div style="display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;">
+      <button onclick="_cancelPreflight()" class="btn btn-ghost">Cancel</button>
+      <button onclick="_startFreshFromPreflight()" class="btn btn-secondary">Run fresh</button>
+      <button onclick="_confirmPreflight()" class="btn btn-primary">Start run</button>
     </div>
   </div>
 </div>
@@ -794,7 +836,7 @@
   }
 
   async function _showQuestionsIfNeeded(prefilled = {}) {
-    const analysis = await (await fetch(`/api/analyse/${SCENARIO_ID}`)).json();
+    const analysis = await (await fetch(`/api/analyse/${SCENARIO_ID}?script=${encodeURIComponent(SCRIPT_KEY || '')}`)).json();
     const allQuestions = analysis.questions || [];
     const preAnswers = {...prefilled};
     allQuestions.forEach(q => { if (q.default) preAnswers[q.key] = q.default; });
@@ -898,6 +940,106 @@
     });
   };
 
+  let _preflightResolve = null;
+
+  function _escapeHtml(value) {
+    return String(value || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  function _labelForVar(name) {
+    return String(name || '')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  function _renderPreflightVars(data) {
+    const varsBox = document.getElementById('preflight-vars');
+    const select = document.getElementById('preflight-force-task');
+    const taskName = select.value || data.matched_task || '';
+    const vars = ((data.task_variables || {})[taskName] || []);
+    if (!vars.length) {
+      varsBox.style.display = 'none';
+      varsBox.innerHTML = '';
+      return;
+    }
+    varsBox.style.display = 'block';
+    varsBox.innerHTML = `
+      <div style="font-size:12px;font-weight:800;color:var(--ink);margin-bottom:6px;">Details needed for this saved task</div>
+      ${vars.map(v => {
+        const label = _labelForVar(v);
+        return `
+          <label style="font-size:12px;font-weight:700;color:var(--muted);display:block;margin:8px 0 5px;">${_escapeHtml(label)}</label>
+          <input id="preflight-var-${_escapeHtml(v)}" class="input" type="text" placeholder="Type ${_escapeHtml(label.toLowerCase())}" />
+        `;
+      }).join('')}
+    `;
+  }
+
+  function _renderPreflight(data) {
+    const confidence = Number(data.confidence || 0);
+    const matched = data.matched_task || '';
+    document.getElementById('preflight-ring').style.setProperty('--pct', confidence);
+    document.getElementById('preflight-confidence').textContent = `${confidence}%`;
+    document.getElementById('preflight-task').textContent = matched || 'No saved task matched';
+    document.getElementById('preflight-reason').textContent = data.reason || (matched ? '' : 'This will run fresh unless you force a saved task.');
+    document.getElementById('preflight-summary').textContent = matched
+      ? `Matched to ${matched}. ${data.covered_count || 0} of ${data.total || 0} steps are known.`
+      : 'No confident match. You can run fresh or force a saved task.';
+
+    const select = document.getElementById('preflight-force-task');
+    const tasks = data.library_tasks || [];
+    select.innerHTML = '<option value="">Use best match</option>' + tasks.map(t => `<option value="${_escapeHtml(t)}">${_escapeHtml(t)}</option>`).join('');
+    select.onchange = () => {
+      document.getElementById('preflight-summary').textContent = select.value
+        ? `Forced task selected: ${select.value}`
+        : (matched ? `Matched to ${matched}. ${data.covered_count || 0} of ${data.total || 0} steps are known.` : 'No confident match. You can run fresh or force a saved task.');
+      _renderPreflightVars(data);
+    };
+    _renderPreflightVars(data);
+
+    const steps = data.steps || [];
+    document.getElementById('preflight-steps').innerHTML = steps.map(s => `
+      <div class="preflight-step">
+        <div class="preflight-state ${s.covered ? 'preflight-known' : 'preflight-gap'}">${s.covered ? 'Known' : 'Train'}</div>
+        <div class="preflight-action"><strong style="font-family:'SF Mono',Consolas,monospace;font-size:11px;color:#5d554a;">${_escapeHtml(s.step_id)}</strong> ${_escapeHtml(s.action || '')}</div>
+      </div>
+    `).join('') || '<div class="preflight-step"><div class="preflight-state preflight-gap">Fresh</div><div class="preflight-action">No coverage data returned.</div></div>';
+  }
+
+  async function _showPreflight() {
+    try {
+      const url = `/api/coverage/${SCENARIO_ID}?script=${encodeURIComponent(SCRIPT_KEY || '')}`;
+      const data = await (await fetch(url)).json();
+      _renderPreflight(data.ok ? data : {steps: [], confidence: 0, library_tasks: []});
+    } catch(e) {
+      _renderPreflight({steps: [], confidence: 0, library_tasks: []});
+    }
+    document.getElementById('preflight-modal').style.display = 'flex';
+    return new Promise(resolve => { _preflightResolve = resolve; });
+  }
+
+  function _closePreflight(result) {
+    document.getElementById('preflight-modal').style.display = 'none';
+    const resolve = _preflightResolve;
+    _preflightResolve = null;
+    resolve && resolve(result);
+  }
+
+  window._cancelPreflight = function() { _closePreflight({cancelled: true}); };
+  window._startFreshFromPreflight = function() { _closePreflight({runFresh: true, forceLibraryTask: ''}); };
+  window._confirmPreflight = function() {
+    const libVars = {};
+    document.querySelectorAll('[id^="preflight-var-"]').forEach(el => {
+      const key = el.id.replace('preflight-var-', '');
+      libVars[key] = el.value.trim();
+    });
+    _closePreflight({
+      runFresh: false,
+      forceLibraryTask: document.getElementById('preflight-force-task').value || '',
+      libVars,
+    });
+  };
+
   async function startRun(supervised) {
     supervised = !!supervised;
     _supervisedMode = supervised;
@@ -906,23 +1048,25 @@
     const label = document.getElementById('run-label');
     btn.disabled = true;
     if (supBtn) supBtn.disabled = true;
-    label.textContent = 'Checking…';
+    label.textContent = 'Checking memory...';
 
-    // Check task library for a match before running
-    let _libVars = null;
-    const matchData = await _checkLibraryMatch();
-    if (matchData) {
-      label.textContent = 'Match found…';
-      _libVars = await new Promise(resolve => {
-        _showMatchModal(matchData, resolve);
-      });
-      label.textContent = supervised ? 'Running (supervised)…' : 'Running…';
+    let preflight = {runFresh: supervised, forceLibraryTask: ''};
+    if (!supervised) {
+      preflight = await _showPreflight();
+      if (preflight.cancelled) {
+        btn.disabled = false;
+        if (supBtn) supBtn.disabled = false;
+        label.textContent = 'Run scenario';
+        return;
+      }
     }
 
-    const answers = await _showQuestionsIfNeeded(_libVars || {});
+    const answers = await _showQuestionsIfNeeded(preflight.libVars || {});
     if (supervised) answers.supervised = true;
-    if (_libVars) answers._lib_vars = _libVars;
     answers.script = SCRIPT_KEY;
+    if (preflight.runFresh) answers.run_fresh = true;
+    if (preflight.forceLibraryTask) answers.force_library_task = preflight.forceLibraryTask;
+    if (preflight.libVars && Object.keys(preflight.libVars).length) answers._lib_vars = preflight.libVars;
 
     label.textContent = supervised ? 'Running (supervised)…' : 'Running…';
     const res = await fetch(`/api/run/${SCENARIO_ID}`, {
