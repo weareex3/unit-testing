@@ -2006,6 +2006,7 @@ async def trigger_run(scenario_id: str, request: Request):
                 step_confirm_callback=_step_confirm if supervised else None,
                 live_mode=live_mode,
                 use_memory=not (supervised or live_mode),
+                manual=(supervised or live_mode),
                 run_id_override=run_id,
             )
             _write_step_log(steps_log, "done")

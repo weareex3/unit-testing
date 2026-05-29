@@ -94,6 +94,7 @@ def run_scenario(
     step_confirm_callback=None,
     live_mode: bool = False,
     use_memory: bool = True,
+    manual: bool = False,
     run_id_override: str | None = None,
 ) -> ScenarioResult:
     """Login to SF, run all (or first *max_steps*) steps, record video."""
@@ -207,11 +208,14 @@ def run_scenario(
                         )
                     _scenario_ctx = "\n".join(_ctx_lines)
 
-                # Live mode: run steps with commands automatically until the first
-                # manual step. After that, ALL remaining steps go through live
-                # control — the user drives them so nothing gets skipped.
-                _go_live = live_mode and pause_callback and (
-                    _live_manual_started or not _has_direct_commands(step_feedback)
+                # manual=True ("watch me" step-by-step): the runner NEVER auto-runs
+                # or guesses a step. Every single step is handed to the human to
+                # perform, in order, from step 1. Otherwise (live_mode) we auto-run
+                # steps that have saved commands until the first manual step, then
+                # hand off the rest.
+                _go_live = pause_callback is not None and (
+                    manual
+                    or (live_mode and (_live_manual_started or not _has_direct_commands(step_feedback)))
                 )
                 if _go_live:
                     _live_manual_started = True
