@@ -298,14 +298,14 @@ def run_scenario(
                         page=page,
                     )
 
-                # Visual verification — confirm the screenshot actually matches the
-                # expected result. Catches "fake passes" where commands ran but
-                # nothing meaningful happened in SF.
-                # Visual verification — ADVISORY ONLY: logs result but never
-                # fails a step. The runner's own pass/fail (no exception thrown)
-                # remains the source of truth. This keeps the existing behaviour
-                # intact while still surfacing fake-pass warnings in the logs.
-                if step_result.passed and step_result.screenshot_path:
+                # Visual verification GATE: an auto-run step only counts as passed
+                # if Claude confirms the expected result is actually on screen. On a
+                # clear FAIL we flip it to failed so the human-takeover path below
+                # runs (the "if it fails, do it step-by-step" behaviour). INCONCLUSIVE
+                # (verifier error / no API key) returns ok=True and does NOT block.
+                # Only gates fully-automated runs — manual / live steps are driven by
+                # the human and aren't second-guessed.
+                if step_result.passed and step_result.screenshot_path and not manual and not live_mode:
                     expected = expected_overrides.get(step.step_id) or step.expected_result
                     ok, reason = _verify_step(
                         step_result.screenshot_path,
@@ -313,7 +313,12 @@ def run_scenario(
                         expected,
                         step.test_data,
                     )
-                    print(f"  [verify-advisory] {step.step_id}: {'PASS' if ok else 'WARN'} — {reason}")
+                    if ok:
+                        print(f"  [verify] {step.step_id}: PASS — {reason}")
+                    else:
+                        print(f"  [verify] {step.step_id}: FAIL — {reason} -> handing to human")
+                        step_result.passed = False
+                        step_result.error_message = f"Verification failed — expected result not visible: {reason}"
 
                 # If failed and we have a pause callback — ask human for help
                 if not step_result.passed and pause_callback:
