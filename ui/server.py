@@ -342,7 +342,83 @@ def _save_match_cache(data: dict) -> None:
     MATCH_CACHE_FILE.write_text(json.dumps(data, indent=2))
 
 
-def _cache_matches(script_key: str, results: list[dict], library_size: int) -> None:
+def _scenario_signature(scenarios) -> str:
+    """Stable fingerprint of a script's scenario content for cache safety."""
+    try:
+        payload = [
+            {
+                "scenario_id": s.scenario_id,
+                "name": s.name,
+                "steps": [
+                    {
+                        "step_id": st.step_id,
+                        "action": st.action,
+                        "expected_result": st.expected_result,
+                    }
+                    for st in (s.steps or [])
+                ],
+            }
+            for s in (scenarios or [])
+        ]
+        blob = json.dumps(payload, sort_keys=True, ensure_ascii=False)
+        return hashlib.sha256(blob.encode("utf-8")).hexdigest()
+    except Exception:
+        return ""
+
+
+def _normalise_cached_match_results(raw_results: list) -> list[dict]:
+    normalised = []
+    for row in raw_results or []:
+        if not isinstance(row, dict):
+            continue
+        scenario_id = str(row.get("scenario_id", "")).strip()
+        if not scenario_id:
+            continue
+        total_steps = int(row.get("total_steps") or 0)
+        covered_count = int(row.get("covered_count") or 0)
+        confidence = int(row.get("confidence") or (round(covered_count / total_steps * 100) if total_steps else 0))
+        normalised.append({
+            "scenario_id": scenario_id,
+            "name": str(row.get("name", "")),
+            "matched_to": str(row.get("matched_to", "")).strip() or None,
+            "reason": str(row.get("reason", ""))[:240],
+            "confidence": max(0, min(100, confidence)),
+            "covered_count": max(0, covered_count),
+            "total_steps": max(0, total_steps),
+        })
+    return normalised
+
+
+def _cached_matches(script_key: str, library_size: int, scenarios) -> list[dict] | None:
+    cache = _load_match_cache()
+    entry = cache.get(script_key)
+    if not isinstance(entry, dict):
+        return None
+    if int(entry.get("library_size") or -1) != int(library_size):
+        return None
+
+    # Prefer strict content signature; fall back to id list for older cache rows.
+    sig_now = _scenario_signature(scenarios)
+    sig_cached = str(entry.get("scenario_signature", "")).strip()
+    if sig_cached:
+        if sig_cached != sig_now:
+            return None
+    else:
+        ids_now = [s.scenario_id for s in scenarios]
+        ids_cached = entry.get("scenario_ids")
+        if not isinstance(ids_cached, list) or [str(v) for v in ids_cached] != ids_now:
+            return None
+
+    results = _normalise_cached_match_results(entry.get("results") or [])
+    if not results:
+        return None
+    by_id = {r["scenario_id"]: r for r in results}
+    if any(s.scenario_id not in by_id for s in scenarios):
+        return None
+    return results
+
+
+def _cache_matches(script_key: str, results: list[dict], library_size: int, scenarios=None) -> None:
     if not script_key:
         return
     cache = _load_match_cache()
@@ -351,9 +427,32 @@ def _cache_matches(script_key: str, results: list[dict], library_size: int) -> N
         "library_size": library_size,
         "matched": sum(1 for r in results if r.get("matched_to")),
         "total": len(results),
+        "scenario_ids": [s.scenario_id for s in (scenarios or [])],
+        "scenario_signature": _scenario_signature(scenarios),
         "results": results,
     }
     _save_match_cache(cache)
+
+
+def _compute_match_results(scenarios, library: dict) -> list[dict]:
+    matches = _match_script_to_library(scenarios, library)
+    results = []
+    for scenario in scenarios:
+        match = matches.get(scenario.scenario_id) or {}
+        cov = _coverage_for_scenario(scenario, library)
+        cov_steps = cov.get("coverage", {}) or {}
+        total_steps = len(scenario.steps)
+        covered_count = sum(1 for st in scenario.steps if cov_steps.get(st.step_id))
+        results.append({
+            "scenario_id": scenario.scenario_id,
+            "name": scenario.name,
+            "matched_to": cov.get("matched_task") or match.get("match"),
+            "reason": cov.get("reason") or match.get("reason", ""),
+            "confidence": round(covered_count / total_steps * 100) if total_steps else 0,
+            "covered_count": covered_count,
+            "total_steps": total_steps,
+        })
+    return results
 
 
 def _git_push_library():
@@ -1870,14 +1969,21 @@ def api_batch_plan(request: Request, script: str = ""):
     if not script or not scenarios:
         return JSONResponse({"ok": False, "error": "Select a script before running all."}, status_code=400)
     library = _load_step_library()
+    library_size = len([e for e in library.values() if isinstance(e, dict) and e.get("steps")])
+    cached = _cached_matches(script or "__all__", library_size, scenarios)
+    cache_hit = cached is not None
+    if cached is None:
+        cached = _compute_match_results(scenarios, library)
+        _cache_matches(script or "__all__", cached, library_size, scenarios=scenarios)
+
+    cached_by_id = {row["scenario_id"]: row for row in cached}
     items = []
     variables: dict[str, str] = {}
     for scenario in scenarios:
-        cov = _coverage_for_scenario(scenario, library)
-        cov_steps = cov.get("coverage", {}) or {}
+        row = cached_by_id.get(scenario.scenario_id, {})
         total = len(scenario.steps)
-        covered = sum(1 for st in scenario.steps if cov_steps.get(st.step_id))
-        matched = cov.get("matched_task")
+        covered = int(row.get("covered_count") or 0)
+        matched = row.get("matched_to")
         task_vars = _library_entry_variables(library.get(matched, {})) if matched else []
         for var in task_vars:
             variables[var] = var.replace("_", " ").title()
@@ -1888,8 +1994,9 @@ def api_batch_plan(request: Request, script: str = ""):
             "module": scenario.module,
             "steps": total,
             "matched_task": matched,
-            "confidence": round(covered / total * 100) if total else 0,
+            "confidence": int(row.get("confidence") or (round(covered / total * 100) if total else 0)),
             "covered_count": covered,
+            "reason": str(row.get("reason", ""))[:240],
             "variables": task_vars,
             "status": "queued",
         })
@@ -1897,6 +2004,7 @@ def api_batch_plan(request: Request, script: str = ""):
         "ok": True,
         "script": script,
         "total": len(items),
+        "cache_hit": cache_hit,
         "items": items,
         "variables": [{"key": k, "label": v} for k, v in variables.items()],
     })
@@ -2096,26 +2204,12 @@ def api_match(request: Request, script: str = ""):
     library, enriched = _enrich_library_entries(library)
     if enriched:
         _save_library(library)
-    matches = _match_script_to_library(scenarios, library)
-    results = []
-    for s in scenarios:
-        match = matches.get(s.scenario_id) or {}
-        cov = _coverage_for_scenario(s, library)
-        cov_steps = cov.get("coverage", {}) or {}
-        total_steps = len(s.steps)
-        covered_count = sum(1 for st in s.steps if cov_steps.get(st.step_id))
-        confidence = round(covered_count / total_steps * 100) if total_steps else 0
-        results.append({
-            "scenario_id": s.scenario_id,
-            "name": s.name,
-            "matched_to": cov.get("matched_task") or match.get("match"),
-            "reason": cov.get("reason") or match.get("reason", ""),
-            "confidence": confidence,
-            "covered_count": covered_count,
-            "total_steps": total_steps,
-        })
     library_size = len([e for e in library.values() if isinstance(e, dict) and e.get("steps")])
-    _cache_matches(script or "__all__", results, library_size)
+    results = _cached_matches(script or "__all__", library_size, scenarios)
+    cache_hit = results is not None
+    if not results:
+        results = _compute_match_results(scenarios, library)
+        _cache_matches(script or "__all__", results, library_size, scenarios=scenarios)
     return JSONResponse({
         "ok": True,
         "total": len(results),
@@ -2123,6 +2217,7 @@ def api_match(request: Request, script: str = ""):
         "library_size": library_size,
         "enriched": enriched,
         "cached": True,
+        "cache_hit": cache_hit,
         "results": results,
     })
 
@@ -2146,26 +2241,10 @@ def rescan_library(request: Request):
         scenarios = _load_scenarios(key)
         if not scenarios:
             continue
-        matches = _match_script_to_library(scenarios, library)
-        results = []
-        for s in scenarios:
-            match = matches.get(s.scenario_id) or {}
-            cov = _coverage_for_scenario(s, library)
-            cov_steps = cov.get("coverage", {}) or {}
-            total_steps = len(s.steps)
-            covered_count = sum(1 for st in s.steps if cov_steps.get(st.step_id))
-            results.append({
-                "scenario_id": s.scenario_id,
-                "name": s.name,
-                "matched_to": cov.get("matched_task") or match.get("match"),
-                "reason": cov.get("reason") or match.get("reason", ""),
-                "confidence": round(covered_count / total_steps * 100) if total_steps else 0,
-                "covered_count": covered_count,
-                "total_steps": total_steps,
-            })
+        results = _compute_match_results(scenarios, library)
         matched_count = sum(1 for r in results if r["matched_to"])
         total_matched += matched_count
-        _cache_matches(key, results, library_size)
+        _cache_matches(key, results, library_size, scenarios=scenarios)
         scanned.append({
             "script": key,
             "name": wb["name"],
