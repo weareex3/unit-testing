@@ -2960,11 +2960,9 @@ def library_page(request: Request):
         <a href="/" class="nav-item"><span class="nav-item-left"><svg class="nav-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Dashboard</span></a>
       </div>
       <div class="nav-section">
-        <div class="nav-label">Test Scripts</div>
-        <a href="/" class="nav-item"><span class="nav-item-left"><svg class="nav-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>All Test Cases</span><span class="nav-count">{st['total']}</span></a>
-        <a href="/?filter=pass" class="nav-item"><span class="nav-item-left"><span class="nav-dot dot-green"></span>Passing</span><span class="nav-count">{st['passing']}</span></a>
-        <a href="/?filter=fail" class="nav-item"><span class="nav-item-left"><span class="nav-dot dot-red"></span>Failing</span><span class="nav-count">{st['failing']}</span></a>
-        <a href="/?filter=blocked" class="nav-item"><span class="nav-item-left"><span class="nav-dot dot-orange"></span>Blocked</span><span class="nav-count">{st['blocked']}</span></a>
+        <div class="nav-label">Scripts</div>
+        <a href="/vault" class="nav-item"><span class="nav-item-left"><svg class="nav-icon" width="15" height="15" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>Vault</span></a>
+        <a href="/history" class="nav-item"><span class="nav-item-left">Runs</span></a>
       </div>
       <div class="nav-section">
         <div class="nav-label">Global</div>
