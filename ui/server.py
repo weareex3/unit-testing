@@ -680,9 +680,19 @@ def _run_record(run_dir: Path, scenarios: dict[str, object] | None = None) -> di
         status = "passed"
     started = audit[0].get("ts") if audit else datetime.utcfromtimestamp(run_dir.stat().st_mtime).replace(microsecond=0).isoformat() + "Z"
     ended = (terminal_events[-1].get("ts") if terminal_events else (audit[-1].get("ts") if audit else started))
+    # Which company this run belongs to — derived from the script it ran (vault
+    # keys look like "<company>/<module>/<file>"); legacy/bundled scripts -> internal.
+    run_script = ""
+    for e in audit:
+        if e.get("event") in ("run_started",):
+            run_script = str(e.get("details", {}).get("script", "") or "")
+            break
+    run_company = run_script.split("/", 1)[0] if "/" in run_script else "internal"
     return {
         "id": run_id,
         "scenario_id": scenario_id,
+        "script": run_script,
+        "company": run_company,
         "scenario_name": getattr(scenario, "name", scenario_id or "Unknown scenario"),
         "module": getattr(scenario, "module", ""),
         "role": getattr(scenario, "role", ""),
@@ -700,12 +710,16 @@ def _run_record(run_dir: Path, scenarios: dict[str, object] | None = None) -> di
     }
 
 
-def _run_records() -> list[dict]:
+def _run_records(company: str | None = None) -> list[dict]:
+    """All run records, newest first. If company is given, only that company's
+    runs (owner/admin pass None to see everything)."""
     scenarios = _scenario_lookup()
     records = []
     if RUNS_DIR.exists():
         for run_dir in sorted([p for p in RUNS_DIR.iterdir() if p.is_dir()], reverse=True):
-            records.append(_run_record(run_dir, scenarios))
+            rec = _run_record(run_dir, scenarios)
+            if company is None or rec.get("company") == company:
+                records.append(rec)
     return records
 
 
@@ -2644,7 +2658,10 @@ def scenario_detail(request: Request, scenario_id: str):
 
 @app.get("/history", response_class=HTMLResponse)
 def run_history(request: Request):
-    records = _run_records()
+    user = _current_user(request)
+    # Users see only their own company's runs; owner/admin see everything.
+    scope = None if _role_at_least(user.get("role", "viewer"), "admin") else (user.get("company") or "internal")
+    records = _run_records(scope)
     return templates.TemplateResponse(
         request=request,
         name="history.html",
@@ -2671,6 +2688,10 @@ def run_audit_detail(request: Request, run_id: str):
         return HTMLResponse("Run not found", status_code=404)
     scenarios = _scenario_lookup()
     record = _run_record(run_dir, scenarios)
+    # Company scope: a non-admin can only open runs from their own company.
+    _viewer = _current_user(request)
+    if not _role_at_least(_viewer.get("role", "viewer"), "admin") and record.get("company") != (_viewer.get("company") or "internal"):
+        return HTMLResponse("Run not found", status_code=404)
     audit = _load_audit(run_id)
     step_log = _step_log_for_run(run_id)
     if not audit:
