@@ -688,7 +688,21 @@ def _read_auth_cookie(request: Request) -> dict | None:
 
 
 def _current_user(request: Request) -> dict:
-    return _read_auth_cookie(request) or {"username": "guest", "role": "viewer"}
+    base = _read_auth_cookie(request)
+    if not base:
+        return {"username": "guest", "role": "viewer", "company": "internal", "name": "Guest"}
+    # The cookie only carries username|role — resolve company + display name from
+    # the user's saved record so uploads/vault file under the right company.
+    uname = str(base.get("username", "")).strip().lower()
+    for u in _configured_users():
+        if str(u.get("username", "")).strip().lower() == uname:
+            return {
+                "username": base["username"],
+                "role": base.get("role", u.get("role", "viewer")),
+                "company": (u.get("company") or "internal"),
+                "name": u.get("name") or base["username"],
+            }
+    return {**base, "company": base.get("company", "internal")}
 
 
 def _is_authenticated(request: Request) -> bool:
