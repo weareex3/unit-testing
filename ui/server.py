@@ -2178,6 +2178,172 @@ def api_batch_status(batch_id: str):
     return JSONResponse({"ok": True, "batch": batch})
 
 
+_SHOWREEL_HTML = r"""<!DOCTYPE html>
+<html lang="en"><head><meta charset="UTF-8"/><meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>EX3 TestOps — Showreel</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet">
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{background:#0a0a09;font-family:Inter,sans-serif;display:grid;place-items:center;overflow:hidden}
+/* Square stage — ideal for LinkedIn. Screen-record this box. */
+.stage{position:relative;width:min(92vw,92vh);aspect-ratio:1/1;background:
+  radial-gradient(circle at 20% 12%,rgba(216,186,114,.16),transparent 34%),
+  linear-gradient(150deg,#0c0b0a,#161513 60%,#0b0b0c);
+  border-radius:24px;overflow:hidden;box-shadow:0 40px 120px rgba(0,0,0,.6);color:#f7f3ea}
+.scene{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  padding:7% 9%;opacity:0;transform:scale(1.02);transition:opacity .6s ease,transform .6s ease;pointer-events:none}
+.scene.on{opacity:1;transform:scale(1);pointer-events:auto}
+.mark{width:54px;height:54px;border-radius:15px;display:grid;place-items:center;font-weight:900;font-size:15px;
+  color:#0b0b0c;background:linear-gradient(135deg,#d8ba72,#91713e);box-shadow:0 12px 40px rgba(216,186,114,.3)}
+.big{font-size:clamp(26px,5vw,46px);font-weight:900;letter-spacing:-.02em;line-height:1.05;text-align:center}
+.sub{margin-top:14px;font-size:clamp(13px,2.2vw,18px);color:#bcb5a8;text-align:center;max-width:80%}
+.cap{position:absolute;left:8%;bottom:8%;font-size:clamp(15px,2.6vw,22px);font-weight:800;
+  background:rgba(11,11,12,.55);backdrop-filter:blur(8px);padding:10px 16px;border-radius:12px;
+  border:1px solid rgba(226,207,159,.18)}
+.kick{color:#d8ba72;font-size:clamp(11px,1.8vw,13px);font-weight:800;letter-spacing:.14em;text-transform:uppercase;margin-bottom:10px}
+/* fake app panel */
+.panel{width:100%;max-width:640px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);
+  border-radius:16px;padding:20px;backdrop-filter:blur(10px)}
+.row{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;background:rgba(255,255,255,.04);
+  border:1px solid rgba(255,255,255,.06);margin-bottom:8px;font-size:14px;font-weight:600;opacity:0;transform:translateY(8px);
+  animation:rise .5s forwards}
+.row .tick{margin-left:auto;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;
+  background:rgba(31,157,90,.18);color:#5fe3a0;font-weight:900;font-size:13px;opacity:0;animation:pop .4s forwards}
+.pill{margin-left:auto;font-size:12px;font-weight:800;color:#5fe3a0;background:rgba(31,157,90,.12);
+  border:1px solid rgba(31,157,90,.25);border-radius:999px;padding:4px 12px;opacity:0;animation:pop .5s forwards}
+@keyframes rise{to{opacity:1;transform:translateY(0)}}
+@keyframes pop{to{opacity:1}}
+.finger{width:120px;height:120px;border-radius:50%;border:3px solid rgba(216,186,114,.5);display:grid;place-items:center;
+  margin-top:24px;animation:pulse 1.4s infinite}
+.finger svg{width:54px;height:54px;stroke:#d8ba72}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(216,186,114,.4)}50%{box-shadow:0 0 0 22px rgba(216,186,114,0)}}
+.cursor{position:absolute;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 0 0 4px rgba(255,255,255,.25);
+  left:50%;top:50%;transition:all 1s cubic-bezier(.6,.1,.2,1);z-index:5}
+.runbar{width:100%;max-width:560px;height:10px;border-radius:999px;background:rgba(255,255,255,.08);overflow:hidden;margin-top:26px}
+.runbar i{display:block;height:100%;width:0;background:linear-gradient(90deg,#d8ba72,#5fe3a0);animation:fill 3.4s forwards}
+@keyframes fill{to{width:100%}}
+.videobox{width:100%;max-width:560px;aspect-ratio:16/9;border-radius:14px;margin-top:22px;
+  background:linear-gradient(135deg,#11100e,#1c1a16);border:1px solid rgba(226,207,159,.18);
+  display:grid;place-items:center;color:#8a8478;position:relative;overflow:hidden}
+.videobox::after{content:"";position:absolute;inset:0;background:linear-gradient(120deg,transparent 30%,rgba(255,255,255,.06) 50%,transparent 70%);
+  animation:sheen 2.2s infinite}
+@keyframes sheen{to{transform:translateX(60%)}}
+.play{width:60px;height:60px;border-radius:50%;background:rgba(216,186,114,.9);display:grid;place-items:center}
+.play svg{width:24px;height:24px;fill:#0b0b0c;margin-left:3px}
+.progress{position:absolute;left:0;bottom:0;height:4px;background:#d8ba72;width:0;animation:bar 16s linear forwards}
+@keyframes bar{to{width:100%}}
+.replay{position:absolute;right:18px;bottom:18px;z-index:9;background:rgba(255,255,255,.08);color:#f7f3ea;border:1px solid rgba(226,207,159,.2);
+  border-radius:10px;padding:8px 14px;font:inherit;font-size:13px;font-weight:700;cursor:pointer}
+</style></head>
+<body>
+<div class="stage" id="stage">
+  <div class="progress" id="prog"></div>
+
+  <div class="scene" data-t="0">
+    <div class="mark">EX3</div>
+    <div class="big" style="margin-top:24px">UAT testing for SAP SuccessFactors.<br>Watch it run itself.</div>
+  </div>
+
+  <div class="scene" data-t="1">
+    <div class="kick">Set up a client</div>
+    <div class="panel">
+      <div class="row" style="animation-delay:.1s">🏢 Northwind Group <span class="pill" style="animation-delay:1s">company added</span></div>
+      <div class="row" style="animation-delay:1.4s">👤 j.shah · Tester <span class="pill" style="animation-delay:2.2s">Northwind</span></div>
+    </div>
+    <div class="cap">Add a client. Assign a user. Set their access.</div>
+  </div>
+
+  <div class="scene" data-t="2">
+    <div class="kick">Secure login</div>
+    <div class="big">No passwords.<br>Just you.</div>
+    <div class="finger"><svg fill="none" viewBox="0 0 24 24" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10.5c0 3.5-.2 6-1.2 8.5"/><path d="M8.2 10a3.8 3.8 0 0 1 7.6 0c0 4-.7 6.2-1 7"/><path d="M5.2 10.6a6.8 6.8 0 0 1 11.4-4.7"/></svg></div>
+    <div class="cap">Sign in with your fingerprint.</div>
+  </div>
+
+  <div class="scene" data-t="3">
+    <div class="kick">Drop in any script</div>
+    <div class="panel">
+      <div class="row" style="animation-delay:.1s">📄 EX3_RCM_Workbook.xlsx <span class="pill" style="animation-delay:.9s">uploaded</span></div>
+      <div class="row" style="animation-delay:1.3s">📁 Northwind → RCM → filed <span class="pill" style="animation-delay:2.1s">in the Vault</span></div>
+    </div>
+    <div class="cap">Upload a UAT script. It files itself.</div>
+  </div>
+
+  <div class="scene" data-t="4">
+    <div class="kick">It already knows</div>
+    <div class="panel">
+      <div class="row" style="animation-delay:.1s">Navigating Modules <span class="pill" style="animation-delay:.8s">matched · 100%</span></div>
+      <div class="row" style="animation-delay:1.1s">How to Proxy <span class="pill" style="animation-delay:1.8s">matched · 100%</span></div>
+      <div class="row" style="animation-delay:2.1s">Create a Position <span class="pill" style="animation-delay:2.8s">matched · 100%</span></div>
+    </div>
+    <div class="cap">It recognises what it's done before.</div>
+  </div>
+
+  <div class="scene" data-t="5">
+    <div class="kick">The money shot</div>
+    <div class="big">Then it runs<br>itself.</div>
+    <div class="runbar"><i></i></div>
+    <div class="panel" style="max-width:520px;margin-top:22px">
+      <div class="row" style="animation-delay:.3s">Step 1 · Open module picker <span class="tick" style="animation-delay:1s">✓</span></div>
+      <div class="row" style="animation-delay:1.4s">Step 2 · Proxy as user <span class="tick" style="animation-delay:2.1s">✓</span></div>
+      <div class="row" style="animation-delay:2.4s">Step 3 · Create position <span class="tick" style="animation-delay:3.1s">✓</span></div>
+    </div>
+    <div class="cap">No hands. It drives SuccessFactors.</div>
+  </div>
+
+  <div class="scene" data-t="6">
+    <div class="kick">Proof &amp; memory</div>
+    <div class="videobox"><div class="play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div></div>
+    <div class="cap">Every run is filmed. Every fix, remembered.</div>
+  </div>
+
+  <div class="scene" data-t="7">
+    <div class="mark">EX3</div>
+    <div class="big" style="margin-top:24px">EX3 TestOps</div>
+    <div class="sub">SuccessFactors UAT — automated, watched, and learned.</div>
+  </div>
+
+  <button class="replay" id="replay">↻ Replay</button>
+</div>
+<script>
+// Scene timeline (seconds into the reel). Total ~32s.
+const T = [0, 4, 9.5, 14, 18.5, 23, 28, 31];
+const scenes = [...document.querySelectorAll('.scene')];
+let timers = [];
+function play(){
+  timers.forEach(clearTimeout); timers = [];
+  scenes.forEach(s=>s.classList.remove('on'));
+  const prog = document.getElementById('prog');
+  prog.style.animation='none'; void prog.offsetWidth; prog.style.animation='bar 32s linear forwards';
+  T.forEach((t,i)=>{
+    timers.push(setTimeout(()=>{
+      scenes.forEach(s=>s.classList.remove('on'));
+      scenes[i].classList.add('on');
+      // re-trigger row/tick animations by cloning
+      scenes[i].querySelectorAll('.row,.tick,.pill,.runbar i').forEach(el=>{
+        const a=el.style.animation; el.style.animation='none'; void el.offsetWidth; el.style.animation=a||'';
+      });
+    }, t*1000));
+  });
+}
+document.getElementById('replay').addEventListener('click',play);
+play();
+</script>
+</body></html>"""
+
+
+@app.get("/showreel", response_class=HTMLResponse)
+def showreel(request: Request):
+    """Owner-only, unlinked animated trailer page. Screen-record it for marketing.
+    Not in any nav; 404s for anyone who isn't the owner."""
+    user = _current_user(request)
+    if not _role_at_least(user.get("role", "viewer"), "owner"):
+        return HTMLResponse("Not found", status_code=404)
+    return HTMLResponse(_SHOWREEL_HTML)
+
+
 @app.get("/batch", response_class=HTMLResponse)
 def batch_page(request: Request, script: str = ""):
     selected_name = next((w["name"] for w in _workbooks() if w["key"] == script), script or "Run all")
