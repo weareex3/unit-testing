@@ -93,6 +93,7 @@ def run_scenario(
     check_pause_fn=None,
     step_confirm_callback=None,
     live_mode: bool = False,
+    use_memory: bool = True,
     run_id_override: str | None = None,
 ) -> ScenarioResult:
     """Login to SF, run all (or first *max_steps*) steps, record video."""
@@ -146,8 +147,11 @@ def run_scenario(
             _login(page, sf_url, username, password)
             print("  [login] logged in successfully")
 
-            feedback_data = _load_feedback(scenario.scenario_id)
-            approved_cmds = _load_approved_commands(scenario.scenario_id)  # locked playbook beats feedback
+            # use_memory=False (step-by-step / take-control) runs every step fresh —
+            # no saved feedback, locked playbook, task library, or learned patterns —
+            # so it always starts from step 1 with a clean slate.
+            feedback_data = _load_feedback(scenario.scenario_id) if use_memory else {}
+            approved_cmds = _load_approved_commands(scenario.scenario_id) if use_memory else {}
             expected_overrides = _load_expected_overrides(scenario.scenario_id)
             _scenario_ctx = ""
             _live_seed_shot = ""   # last real screenshot from an automated step
@@ -155,13 +159,14 @@ def run_scenario(
 
             # Task library: check once per scenario if the whole scenario matches a saved task
             import json as _json
-            _lib_file = _storage_root() / "global" / "step_library.json"
             _library = {}
-            if _lib_file.exists():
-                try:
-                    _library = _json.loads(_lib_file.read_text())
-                except Exception:
-                    pass
+            if use_memory:
+                _lib_file = _storage_root() / "global" / "step_library.json"
+                if _lib_file.exists():
+                    try:
+                        _library = _json.loads(_lib_file.read_text())
+                    except Exception:
+                        pass
             _library_steps = _library_task_match(steps, _library) if _library else {}
             # library steps are keyed by step_id; build a positional fallback by index too
             _library_by_index = {str(i): cmd for i, cmd in enumerate(_library_steps.values())}
@@ -175,7 +180,7 @@ def run_scenario(
                 if not step_feedback and _library_steps:
                     # Match by step_id first, then by position within the task
                     step_feedback = _library_steps.get(step.step_id, "") or _library_by_index.get(str(i - 1), "")
-                if not step_feedback:
+                if not step_feedback and use_memory:
                     matched = _match_pattern(step.action)
                     if matched:
                         print(f"  [pattern] matched learned pattern — using stored commands")

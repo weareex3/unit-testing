@@ -2005,6 +2005,7 @@ async def trigger_run(scenario_id: str, request: Request):
                 check_pause_fn=_check_pause,
                 step_confirm_callback=_step_confirm if supervised else None,
                 live_mode=live_mode,
+                use_memory=not (supervised or live_mode),
                 run_id_override=run_id,
             )
             _write_step_log(steps_log, "done")
@@ -2980,9 +2981,12 @@ def library_page(request: Request):
     </div>
     <div class="content">
       <div class="content-inner">
-        <div style="margin-bottom:24px;">
-          <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:4px;">Task Library</h1>
-          <p style="font-size:13px;color:#6e6e73;">Saved tasks fire automatically on any module, any client. Claude matches by intent — not exact wording.</p>
+        <div style="margin-bottom:24px;display:flex;align-items:flex-start;justify-content:space-between;gap:16px;">
+          <div>
+            <h1 style="font-size:24px;font-weight:700;letter-spacing:-0.03em;color:#1d1d1f;margin-bottom:4px;">Task Library</h1>
+            <p style="font-size:13px;color:#6e6e73;">Saved tasks fire automatically on any module, any client. Claude matches by intent — not exact wording.</p>
+          </div>
+          <button onclick="clearAllTasks()" class="btn btn-danger" style="flex-shrink:0;">Wipe all</button>
         </div>
         <div id="lib-body"><p style="color:#aeaeb2;font-size:13px;">Loading…</p></div>
       </div>
@@ -3015,6 +3019,12 @@ async function deleteTask(name) {{
   const res = await fetch('/api/library/'+encodeURIComponent(name), {{method:'DELETE'}});
   if (res.ok) window.location.reload();
   else alert('Delete failed');
+}}
+async function clearAllTasks() {{
+  if (!confirm('Wipe ALL saved tasks from the library? This cannot be undone.')) return;
+  const res = await fetch('/api/library/clear', {{method:'POST'}});
+  if (res.ok) window.location.reload();
+  else alert('Wipe failed');
 }}
 </script>
 </body>
@@ -3118,5 +3128,12 @@ def delete_library_task(task_name: str):
     data = _load_library()
     data.pop(task_name, None)
     _save_library(data)
+    threading.Thread(target=_git_push_library, daemon=True).start()
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/library/clear")
+def clear_library():
+    _save_library({})
     threading.Thread(target=_git_push_library, daemon=True).start()
     return JSONResponse({"ok": True})
