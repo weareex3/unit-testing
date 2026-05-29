@@ -95,6 +95,8 @@ def run_scenario(
     live_mode: bool = False,
     use_memory: bool = True,
     manual: bool = False,
+    no_guess: bool = False,
+    unattended: bool = False,
     run_id_override: str | None = None,
     forced_library_task: str = "",
 ) -> ScenarioResult:
@@ -214,17 +216,31 @@ def run_scenario(
                         )
                     _scenario_ctx = "\n".join(_ctx_lines)
 
-                # manual=True ("watch me" step-by-step): the runner NEVER auto-runs
-                # or guesses a step. Every single step is handed to the human to
-                # perform, in order, from step 1. Otherwise (live_mode) we auto-run
-                # steps that have saved commands until the first manual step, then
-                # hand off the rest.
+                # manual=True ("watch me"): every step handed to the human.
+                # no_guess=True (normal Run / Run All): replay ONLY steps we already
+                # know (saved commands); NEVER vision-guess an unknown step. Scenarios
+                # are linear, so at the first unknown step we either hand it to the
+                # human (interactive) or — if unattended (batch) — stop and flag it.
+                _known = _has_direct_commands(step_feedback)
+                if no_guess and not _known and unattended:
+                    print(f"  [no-guess] {step.step_id} not learned + unattended -> needs-training, stop")
+                    step_result = StepResult(
+                        step_id=step.step_id, passed=False,
+                        error_message="Needs training — this step hasn't been learned yet",
+                    )
+                    result.steps.append(step_result)
+                    if step_done_callback:
+                        step_done_callback(step.step_id, False, step_result.error_message, "")
+                    break
+
                 _go_live = pause_callback is not None and (
                     manual
-                    or (live_mode and (_live_manual_started or not _has_direct_commands(step_feedback)))
+                    or (no_guess and not _known)
+                    or (live_mode and (_live_manual_started or not _known))
                 )
                 if _go_live:
-                    _live_manual_started = True
+                    if not no_guess:
+                        _live_manual_started = True
                     fix = pause_callback(
                         scenario_id=scenario.scenario_id,
                         step_id=step.step_id,

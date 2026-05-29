@@ -1964,6 +1964,8 @@ def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers:
         live_mode=False,
         use_memory=True,
         manual=False,
+        no_guess=True,
+        unattended=True,
         run_id_override=run_id,
     )
     videos = sorted((RUNS_DIR / run_id).glob("*.webm"))
@@ -2525,6 +2527,8 @@ async def trigger_run(scenario_id: str, request: Request):
                 live_mode=live_mode,
                 use_memory=not (supervised or live_mode or run_fresh),
                 manual=(supervised or live_mode),
+                no_guess=not (supervised or live_mode),
+                unattended=False,
                 run_id_override=run_id,
                 forced_library_task=force_library_task,
             )
