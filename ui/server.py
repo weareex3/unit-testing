@@ -624,6 +624,13 @@ def _scenario_lookup() -> dict[str, object]:
 
 
 def _step_log_for_run(run_id: str) -> dict:
+    # Prefer the immutable per-run log; fall back to the legacy scenario-keyed scan.
+    per_run = RUNS_DIR / run_id / "steps.json"
+    if per_run.exists():
+        try:
+            return json.loads(per_run.read_text())
+        except Exception:
+            pass
     for f in RUNS_DIR.glob("*_last_run.json"):
         try:
             data = json.loads(f.read_text())
@@ -2109,13 +2116,20 @@ def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers:
         details={"script": script, "batch_id": batch_id, "answers": answers, "step_count": len(scenario.steps)},
     )
     step_log_file = RUNS_DIR / f"{scenario.scenario_id}_last_run.json"
+    per_run_log = RUNS_DIR / run_id / "steps.json"
     steps_log: list[dict] = []
 
     def _write_step_log(run_status: str) -> None:
-        try:
-            step_log_file.write_text(json.dumps({"run_id": run_id, "status": run_status, "steps": steps_log}, indent=2))
-        except Exception:
-            pass
+        payload = json.dumps({
+            "run_id": run_id, "scenario_id": scenario.scenario_id, "script": script,
+            "status": run_status, "steps": steps_log,
+        }, indent=2)
+        for target in (step_log_file, per_run_log):
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(payload)
+            except Exception:
+                pass
 
     def _step_done(step_id, passed, error, screenshot_url):
         steps_log.append({
@@ -2799,18 +2813,24 @@ async def trigger_run(scenario_id: str, request: Request):
         },
     )
 
-    # Live step log written to disk so it survives page reload
+    # Live step log. Written to BOTH a scenario-keyed file (legacy, for page
+    # reload) AND an immutable per-run file runs/{run_id}/steps.json so each run's
+    # evidence is isolated by run_id and can't be overwritten by another run that
+    # happens to share the same scenario_id.
     step_log_file = RUNS_DIR / f"{scenario_id}_last_run.json"
+    per_run_log = RUNS_DIR / run_id / "steps.json"
 
     def _write_step_log(steps_so_far: list, run_status: str):
-        try:
-            step_log_file.write_text(json.dumps({
-                "run_id": run_id,
-                "status": run_status,
-                "steps": steps_so_far,
-            }, indent=2))
-        except Exception:
-            pass
+        payload = json.dumps({
+            "run_id": run_id, "scenario_id": scenario_id, "script": script_key,
+            "status": run_status, "steps": steps_so_far,
+        }, indent=2)
+        for target in (step_log_file, per_run_log):
+            try:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(payload)
+            except Exception:
+                pass
 
     def _run():
         steps_log = []
