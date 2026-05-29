@@ -1743,6 +1743,10 @@ def scenario_detail(request: Request, scenario_id: str):
             "role_color": _role_color(scenario.role),
             "run": latest_run,
             "selected_script": selected_script,
+            "library_tasks": [
+                {"name": n, "description": (e.get("description", "") if isinstance(e, dict) else "")}
+                for n, e in _load_library().items()
+            ],
             "stats": _stats(),
             "step_statuses": step_statuses,
             "step_feedback": feedback,

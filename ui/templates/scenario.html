@@ -282,6 +282,14 @@
     <h3 style="font-size:15px;font-weight:700;color:#1d1d1f;margin:0 0 4px;">Save to Task Library</h3>
     <p style="font-size:12px;color:#aeaeb2;margin:0 0 18px;">Saves the entire locked task. Claude will recognise it in any future module automatically.</p>
 
+    {% if library_tasks %}
+    <label style="font-size:12px;font-weight:500;color:#3c3c43;display:block;margin-bottom:5px;">Save as new, or rewrite an existing task?</label>
+    <select id="lib-target-input" class="input" style="margin-bottom:14px;" onchange="_onLibTargetChange()">
+      <option value="">➕ Save as a new task</option>
+      {% for t in library_tasks %}<option value="{{ t.name }}">✏️ Rewrite: {{ t.name }}</option>{% endfor %}
+    </select>
+    {% endif %}
+
     <label style="font-size:12px;font-weight:500;color:#3c3c43;display:block;margin-bottom:5px;">Task name</label>
     <input id="lib-name-input" type="text" class="input" placeholder="e.g. Proxy, Navigate to Module, Role Based Permissions" style="margin-bottom:14px;" />
 
@@ -291,7 +299,7 @@
 
     <div style="display:flex;gap:8px;">
       <button onclick="closeLibModal()" class="btn btn-ghost" style="flex:1;justify-content:center;">Cancel</button>
-      <button onclick="saveToLibrary()" class="btn btn-primary" style="flex:1;justify-content:center;">Save Task</button>
+      <button id="lib-save-btn" onclick="saveToLibrary()" class="btn btn-primary" style="flex:1;justify-content:center;">Save Task</button>
     </div>
     <p id="lib-save-status" style="font-size:12px;text-align:center;margin:10px 0 0;color:#34c759;font-weight:600;display:none;"></p>
   </div>
@@ -302,6 +310,7 @@
   const SCRIPT_KEY = "{{ selected_script }}";
   const EXISTING_FEEDBACK = {{ step_feedback | tojson }};
   const STEP_SCREENSHOTS = {{ step_screenshots | tojson }};
+  const LIB_TASKS = {{ library_tasks | tojson }};
   let _selectedStep = null;
   let _pollTimer = null;
   let _stepPollTimer = null;
@@ -1363,10 +1372,39 @@
   // ── Task Library ──────────────────────────────────────────────────────────────
   function openLibModal() {
     document.getElementById('lib-save-status').style.display = 'none';
-    document.getElementById('lib-name-input').value = '';
+    const nameInput = document.getElementById('lib-name-input');
+    nameInput.value = '';
+    nameInput.readOnly = false;
+    nameInput.style.background = '';
     document.getElementById('lib-desc-input').value = '';
+    const target = document.getElementById('lib-target-input');
+    if (target) target.value = '';
+    const btn = document.getElementById('lib-save-btn');
+    if (btn) btn.textContent = 'Save Task';
     document.getElementById('lib-modal').style.display = 'flex';
-    document.getElementById('lib-name-input').focus();
+    nameInput.focus();
+  }
+
+  // Pick an existing task to rewrite (overwrite it), or leave on "new".
+  function _onLibTargetChange() {
+    const sel = document.getElementById('lib-target-input');
+    const nameInput = document.getElementById('lib-name-input');
+    const descInput = document.getElementById('lib-desc-input');
+    const btn = document.getElementById('lib-save-btn');
+    const target = sel ? sel.value : '';
+    if (target) {
+      nameInput.value = target;
+      nameInput.readOnly = true;
+      nameInput.style.background = '#f5f5f7';
+      const entry = (LIB_TASKS || []).find(t => t.name === target);
+      if (entry && entry.description && !descInput.value.trim()) descInput.value = entry.description;
+      if (btn) btn.textContent = 'Rewrite saved task';
+    } else {
+      nameInput.value = '';
+      nameInput.readOnly = false;
+      nameInput.style.background = '';
+      if (btn) btn.textContent = 'Save Task';
+    }
   }
 
   function closeLibModal() {
