@@ -124,9 +124,10 @@
           if(!d.ok){ box.innerHTML='<div style="padding:14px;color:#c9493d;font-size:13px;">'+(d.error||'Match failed')+'</div>'; btn.disabled=false; return; }
           var rows=d.results.map(function(r){
             var right = r.matched_to
-              ? '<span style="font-size:12px;font-weight:800;color:#1f9d5a;background:rgba(31,157,90,.1);border:1px solid rgba(31,157,90,.18);border-radius:999px;padding:4px 11px;">matched as: '+r.matched_to+'</span>'
-              : '<span style="font-size:12px;color:#9a948a;">no match yet</span>';
-            return '<div style="display:flex;justify-content:space-between;align-items:center;gap:12px;padding:12px 16px;border-top:1px solid var(--line);"><span style="font-weight:700;">'+r.name+'</span>'+right+'</div>';
+              ? '<span style="font-size:12px;font-weight:800;color:#1f9d5a;background:rgba(31,157,90,.1);border:1px solid rgba(31,157,90,.18);border-radius:999px;padding:4px 11px;white-space:nowrap;">matched as: '+r.matched_to+'</span>'
+              : '<span style="font-size:12px;color:#9a948a;white-space:nowrap;">no match</span>';
+            var reason = r.reason ? '<div style="font-size:11.5px;color:#9a948a;margin-top:3px;line-height:1.4;">'+r.reason+'</div>' : '';
+            return '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;padding:12px 16px;border-top:1px solid var(--line);"><div style="min-width:0;"><div style="font-weight:700;">'+r.name+'</div>'+reason+'</div>'+right+'</div>';
           }).join('');
           box.innerHTML='<div class="surface" style="overflow:hidden;"><div style="padding:14px 16px;background:#171512;color:#fff;font-weight:800;font-size:14px;display:flex;align-items:center;gap:8px;">Claude matched '+d.matched+' of '+d.total+' task'+(d.total===1?'':'s')+' to your library</div>'+rows+'</div>';
           btn.disabled=false;

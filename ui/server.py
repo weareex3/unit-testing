@@ -1523,19 +1523,21 @@ def _role_color(role: str) -> str:
 def _grouped_scenarios(workbook: str | None = None):
     scenarios = _load_scenarios(workbook)
     groups = defaultdict(list)
+    OTHER = "Tasks"
     for s in scenarios:
-        for label, predicate in CATEGORY_RULES:
-            if predicate(s):
-                status = _scenario_status(s.scenario_id, total_steps=len(s.steps))
-                groups[label].append({
-                    "id": s.scenario_id,
-                    "name": s.name,
-                    "role": s.role,
-                    "role_color": _role_color(s.role),
-                    "step_count": len(s.steps),
-                    **status,
-                })
-                break
+        status = _scenario_status(s.scenario_id, total_steps=len(s.steps))
+        entry = {
+            "id": s.scenario_id,
+            "name": s.name,
+            "role": s.role,
+            "role_color": _role_color(s.role),
+            "step_count": len(s.steps),
+            **status,
+        }
+        # Place into the first matching category, else a catch-all — never drop a scenario.
+        label = next((lbl for lbl, pred in CATEGORY_RULES if pred(s)), OTHER)
+        groups[label].append(entry)
+    order = [lbl for lbl, _ in CATEGORY_RULES] + [OTHER]
     return [
         {
             "label": label,
@@ -1543,7 +1545,7 @@ def _grouped_scenarios(workbook: str | None = None):
             "scenario_count": len(groups[label]),
             "step_count": sum(sc["step_count"] for sc in groups[label]),
         }
-        for label, _ in CATEGORY_RULES
+        for label in order
         if groups[label]
     ]
 
@@ -1574,9 +1576,10 @@ def _load_step_library() -> dict:
 
 
 def _match_script_to_library(scenarios, library: dict) -> dict:
-    """Ask Claude which known task each scenario performs (by process, not name).
-    Returns {scenario_id: matched_task_name or None}."""
-    result = {s.scenario_id: None for s in scenarios}
+    """Ask Claude which known task each scenario performs — judged by the WHOLE
+    process, not shared keywords. Returns
+    {scenario_id: {"match": task_name|None, "reason": str}}."""
+    result = {s.scenario_id: {"match": None, "reason": ""} for s in scenarios}
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     tasks = {n: e for n, e in library.items() if isinstance(e, dict) and e.get("steps")}
     if not api_key or not tasks or not scenarios:
@@ -1584,22 +1587,28 @@ def _match_script_to_library(scenarios, library: dict) -> dict:
     task_lines = "\n".join(f"- {n}: {e.get('description', n)}" for n, e in tasks.items())
     scen_lines = []
     for s in scenarios:
-        steps = "; ".join((st.action or "") for st in s.steps[:6])
+        steps = "; ".join((st.action or "") for st in s.steps[:8])
         scen_lines.append(f"[{s.scenario_id}] {s.name} — steps: {steps}")
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=500,
+            model="claude-sonnet-4-6",
+            max_tokens=800,
             messages=[{"role": "user", "content": (
-                "You match SAP SuccessFactors test scenarios to a library of known tasks by the "
-                "PROCESS they perform, not by their wording — a task named differently but doing the "
-                "same steps is a match.\n\n"
+                "Decide whether each SAP SuccessFactors test scenario performs the SAME end-to-end "
+                "process as one of the known tasks. Judge the WHOLE task and its overall goal — NOT "
+                "individual steps. Two tasks that merely share one step (e.g. both pass through the "
+                "module picker on the way to somewhere else) are NOT a match. Only match when the "
+                "scenario's overall purpose and sequence are essentially the same as the known task. "
+                "When unsure, do NOT match.\n\n"
                 f"Known tasks:\n{task_lines}\n\n"
-                f"Scenarios:\n" + "\n".join(scen_lines) + "\n\n"
-                "Reply with ONLY a JSON object mapping each scenario id to the exact known task name it "
-                "matches, or to null if none match. Example: {\"LOGIN-102\": \"Proxy Login\", \"LOGIN-101\": null}"
+                "Scenarios:\n" + "\n".join(scen_lines) + "\n\n"
+                "Reply with ONLY a JSON object mapping each scenario id to an object "
+                '{"match": "<exact known task name>" or null, "reason": "<one short sentence>"}. '
+                'Example: {"LOGIN-102": {"match": "Proxy Login", "reason": "Both switch into another '
+                'user\'s session via Proxy Now."}, "RCM-RC-101": {"match": null, "reason": "Creating a '
+                'position in the org chart is a different process from navigating modules."}}'
             )}],
         )
         raw = msg.content[0].text.strip()
@@ -1607,9 +1616,14 @@ def _match_script_to_library(scenarios, library: dict) -> dict:
             raw = raw.split("```")[1]
             raw = raw[4:] if raw.startswith("json") else raw
         parsed = json.loads(raw.strip())
-        for sid, name in parsed.items():
-            if sid in result and isinstance(name, str) and name in tasks:
-                result[sid] = name
+        for sid, val in parsed.items():
+            if sid not in result or not isinstance(val, dict):
+                continue
+            name = val.get("match")
+            result[sid] = {
+                "match": name if (isinstance(name, str) and name in tasks) else None,
+                "reason": str(val.get("reason", ""))[:240],
+            }
     except Exception as exc:
         print(f"[match] error: {exc}")
     return result
@@ -1623,7 +1637,12 @@ def api_match(request: Request, script: str = ""):
     library = _load_step_library()
     matches = _match_script_to_library(scenarios, library)
     results = [
-        {"scenario_id": s.scenario_id, "name": s.name, "matched_to": matches.get(s.scenario_id)}
+        {
+            "scenario_id": s.scenario_id,
+            "name": s.name,
+            "matched_to": (matches.get(s.scenario_id) or {}).get("match"),
+            "reason": (matches.get(s.scenario_id) or {}).get("reason", ""),
+        }
         for s in scenarios
     ]
     return JSONResponse({
