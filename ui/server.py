@@ -1643,6 +1643,78 @@ def _match_script_to_library(scenarios, library: dict) -> dict:
     return result
 
 
+def _coverage_for_scenario(scenario, library: dict) -> dict:
+    """Best-matching library task + per-step coverage for ONE scenario.
+    Returns {"matched_task": name|None, "reason": str, "coverage": {step_id: bool}}.
+    Steps the matched task can perform are covered; extra/company-specific steps
+    it can't perform are gaps."""
+    out = {"matched_task": None, "reason": "", "coverage": {}}
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    tasks = {n: e for n, e in library.items() if isinstance(e, dict) and e.get("steps")}
+    if not api_key or not tasks or not getattr(scenario, "steps", None):
+        return out
+    task_lines = []
+    for n, e in tasks.items():
+        acts = e.get("step_actions") or []
+        known = "; ".join(acts) if acts else e.get("description", n)
+        task_lines.append(f"- {n}: goal = {e.get('description', n)} | known steps = {known}")
+    step_lines = [f"[{st.step_id}] {st.action}" for st in scenario.steps]
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=700,
+            messages=[{"role": "user", "content": (
+                "A user is about to run this SAP SuccessFactors test scenario. Decide if it is the SAME "
+                "end-to-end process as one of the known library tasks — judge by goal/intent, not wording. "
+                "If it matches, mark which of the scenario's steps the known task already covers, and treat "
+                "the rest (extra or company-specific steps the saved task can't perform) as gaps.\n\n"
+                "Known tasks:\n" + "\n".join(task_lines) + "\n\n"
+                "Scenario steps:\n" + "\n".join(step_lines) + "\n\n"
+                "Reply with ONLY JSON: {\"matched_task\": \"<exact task name>\" or null, "
+                "\"reason\": \"<one short sentence>\", \"covered_step_ids\": [\"<step_id>\", ...]}. "
+                "covered_step_ids lists only the scenario step ids the matched task can perform."
+            )}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            raw = raw[4:] if raw.startswith("json") else raw
+        parsed = json.loads(raw.strip())
+        name = parsed.get("matched_task")
+        if isinstance(name, str) and name in tasks:
+            covered = set(parsed.get("covered_step_ids") or [])
+            out["matched_task"] = name
+            out["reason"] = str(parsed.get("reason", ""))[:240]
+            out["coverage"] = {st.step_id: (st.step_id in covered) for st in scenario.steps}
+    except Exception as exc:
+        print(f"[coverage] error: {exc}")
+    return out
+
+
+@app.get("/api/coverage/{scenario_id}")
+def api_coverage(request: Request, scenario_id: str, script: str = ""):
+    scenario = next((s for s in _load_scenarios(script or None) if s.scenario_id == scenario_id), None)
+    if not scenario:
+        return JSONResponse({"ok": False, "error": "Scenario not found"})
+    library = _load_step_library()
+    cov = _coverage_for_scenario(scenario, library)
+    steps = [
+        {"step_id": st.step_id, "action": st.action, "covered": bool(cov["coverage"].get(st.step_id))}
+        for st in scenario.steps
+    ]
+    return JSONResponse({
+        "ok": True,
+        "matched_task": cov["matched_task"],
+        "reason": cov["reason"],
+        "steps": steps,
+        "covered_count": sum(1 for s in steps if s["covered"]),
+        "total": len(steps),
+        "library_tasks": [n for n, e in library.items() if isinstance(e, dict) and e.get("steps")],
+    })
+
+
 @app.get("/api/match")
 def api_match(request: Request, script: str = ""):
     scenarios = _load_scenarios(script or None)
@@ -3106,15 +3178,18 @@ def add_to_library(
     approved = _load_approved().get(scenario_id, {})
     steps = approved.get("step_commands", {}) or _load_feedback().get(scenario_id, {})
     learned = bool(steps)
-    if not steps:
-        scenario = next((s for s in _load_scenarios() if s.scenario_id == scenario_id), None)
-        if scenario:
-            steps = {st.step_id: (st.action or "") for st in scenario.steps}
+    scenario = next((s for s in _load_scenarios() if s.scenario_id == scenario_id), None)
+    if not steps and scenario:
+        steps = {st.step_id: (st.action or "") for st in scenario.steps}
+    # Save the human-readable step actions too, so future matching can align a new
+    # scenario's steps to this task by MEANING (covered vs gap), not just by name.
+    step_actions = [st.action for st in scenario.steps] if scenario else []
     data = _load_library()
     data[task_name] = {
         "description": task_description,
         "scenario_id": scenario_id,
         "steps": steps or {},
+        "step_actions": step_actions,
         "has_learned_commands": learned,
     }
     _save_library(data)
