@@ -787,19 +787,40 @@ def _public_user(user: dict) -> dict:
     }
 
 
+_PBKDF2_ITERS = 200_000
+
+
 def _hash_password(password: str) -> str:
-    return "sha256:" + hashlib.sha256(password.encode("utf-8")).hexdigest()
+    """Salted PBKDF2-HMAC-SHA256 (stdlib, no extra dependency)."""
+    salt = secrets.token_hex(16)
+    dk = hashlib.pbkdf2_hmac("sha256", password.encode("utf-8"), bytes.fromhex(salt), _PBKDF2_ITERS)
+    return f"pbkdf2${_PBKDF2_ITERS}${salt}${dk.hex()}"
 
 
 def _password_ok(candidate: str, stored: str) -> bool:
+    if not stored:
+        return False
+    if stored.startswith("pbkdf2$"):
+        try:
+            _, iters, salt, want = stored.split("$", 3)
+            dk = hashlib.pbkdf2_hmac("sha256", candidate.encode("utf-8"), bytes.fromhex(salt), int(iters))
+            return secrets.compare_digest(dk.hex(), want)
+        except Exception:
+            return False
+    # Legacy formats still verify (sha256:, or plain for the env PIN).
     if stored.startswith("sha256:"):
         digest = hashlib.sha256(candidate.encode("utf-8")).hexdigest()
         return secrets.compare_digest(stored.removeprefix("sha256:"), digest)
     return secrets.compare_digest(candidate, stored)
 
 
+# Signed-cookie sessions expire after this long; a fresh login re-issues.
+AUTH_TTL_SECONDS = 12 * 3600
+
+
 def _sign_auth(username: str, role: str) -> str:
-    payload = f"{username}|{role}"
+    iat = str(int(datetime.utcnow().timestamp()))
+    payload = f"{username}|{role}|{iat}"
     sig = hmac.new(AUTH_TOKEN.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
     return base64.urlsafe_b64encode(f"{payload}|{sig}".encode("utf-8")).decode("ascii")
 
@@ -810,13 +831,23 @@ def _read_auth_cookie(request: Request) -> dict | None:
         return None
     try:
         decoded = base64.urlsafe_b64decode(raw.encode("ascii")).decode("utf-8")
-        username, role, sig = decoded.split("|", 2)
-        expected = hmac.new(AUTH_TOKEN.encode("utf-8"), f"{username}|{role}".encode("utf-8"), hashlib.sha256).hexdigest()
-        if secrets.compare_digest(sig, expected):
-            return {"username": username, "role": role if role in ROLE_LEVELS else "viewer"}
+        parts = decoded.split("|")
+        if len(parts) == 4:
+            username, role, iat, sig = parts
+            payload = f"{username}|{role}|{iat}"
+        elif len(parts) == 3:  # legacy cookie (no issued-at) — accept, no expiry
+            username, role, sig = parts
+            payload, iat = f"{username}|{role}", None
+        else:
+            return None
+        expected = hmac.new(AUTH_TOKEN.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not secrets.compare_digest(sig, expected):
+            return None
+        if iat is not None and (datetime.utcnow().timestamp() - int(iat)) > AUTH_TTL_SECONDS:
+            return None  # session expired
+        return {"username": username, "role": role if role in ROLE_LEVELS else "viewer"}
     except Exception:
         return None
-    return None
 
 
 def _current_user(request: Request) -> dict:
@@ -869,6 +900,45 @@ def _minimum_role_for_write(path: str, method: str) -> str:
     ):
         return "tester"
     return "admin"
+
+
+# ── Login rate-limiting / lockout ───────────────────────────────────────────
+_LOGIN_FAILS: dict[str, list[float]] = {}
+_LOGIN_LOCK_THRESHOLD = 8       # failures within the window before lockout
+_LOGIN_LOCK_WINDOW = 900        # 15 minutes
+
+
+def _client_ip(request: Request) -> str:
+    xff = request.headers.get("x-forwarded-for", "")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else "?"
+
+
+def _login_locked(key: str) -> bool:
+    now = datetime.utcnow().timestamp()
+    fails = [t for t in _LOGIN_FAILS.get(key, []) if now - t < _LOGIN_LOCK_WINDOW]
+    _LOGIN_FAILS[key] = fails
+    return len(fails) >= _LOGIN_LOCK_THRESHOLD
+
+
+def _record_login_fail(key: str) -> None:
+    _LOGIN_FAILS.setdefault(key, []).append(datetime.utcnow().timestamp())
+
+
+def _clear_login_fails(key: str) -> None:
+    _LOGIN_FAILS.pop(key, None)
+
+
+@app.middleware("http")
+async def security_headers(request: Request, call_next):
+    resp = await call_next(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("X-Frame-Options", "DENY")
+    resp.headers.setdefault("Referrer-Policy", "strict-origin-when-cross-origin")
+    resp.headers.setdefault("Strict-Transport-Security", "max-age=31536000; includeSubDomains")
+    resp.headers.setdefault("Content-Security-Policy", "frame-ancestors 'none'")
+    return resp
 
 
 @app.middleware("http")
@@ -958,11 +1028,11 @@ def login_page(request: Request):
     <h1>Welcome back</h1>
     <p>Sign in to the private TestOps command centre.</p>
     <label for="username">User</label>
-    <input id="username" name="username" type="text" value="louie" autocomplete="username" autofocus />
+    <input id="username" name="username" type="text" placeholder="Username" autocomplete="username" autofocus />
     <label for="password">Password</label>
-    <input id="password" name="password" type="password" inputmode="numeric" autocomplete="current-password" />
+    <input id="password" name="password" type="password" placeholder="Password" autocomplete="current-password" />
     <button type="submit">Enter workspace</button>
-    {('<div class="err">Incorrect username or password</div>' if error else '')}
+    {('<div class="err">Too many attempts — locked for 15 minutes. Try again later.</div>' if error == 'locked' else ('<div class="err">Incorrect username or password</div>' if error else ''))}
     <button id="pk-btn" type="button" style="display:none;margin-top:12px;background:rgba(255,255,255,.06);color:#f7f3ea;border:1px solid rgba(226,207,159,.22);align-items:center;justify-content:center;gap:9px">
       <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 10.5c0 3.5-.2 6-1.2 8.5"/><path d="M8.2 10a3.8 3.8 0 0 1 7.6 0c0 4-.7 6.2-1 7"/><path d="M5.2 10.6a6.8 6.8 0 0 1 11.4-4.7"/><path d="M9 18.6c.5-1.3.6-3.4.6-5.1a2.4 2.4 0 0 1 4.8 0"/></svg>
       Sign in with fingerprint
@@ -975,16 +1045,24 @@ def login_page(request: Request):
 
 
 @app.post("/login")
-def login(username: str = Form("louie"), password: str = Form("")):
+def login(request: Request, username: str = Form(""), password: str = Form("")):
+    key = _client_ip(request)
+    if _login_locked(key):
+        return RedirectResponse("/login?error=locked", status_code=303)
     for user in _configured_users():
         if (
             secrets.compare_digest(username.strip().lower(), str(user.get("username", "")).strip().lower())
             and _password_ok(password, str(user.get("password", "")))
         ):
             role = str(user.get("role", "viewer")).lower()
+            _clear_login_fails(key)
             response = RedirectResponse("/", status_code=303)
-            response.set_cookie(AUTH_COOKIE, _sign_auth(str(user["username"]), role), httponly=True, secure=True, samesite="lax")
+            response.set_cookie(
+                AUTH_COOKIE, _sign_auth(str(user["username"]), role),
+                httponly=True, secure=True, samesite="lax", max_age=AUTH_TTL_SECONDS,
+            )
             return response
+    _record_login_fail(key)
     return RedirectResponse("/login?error=1", status_code=303)
 
 
@@ -1217,7 +1295,7 @@ async def webauthn_authenticate_complete(request: Request):
     stored["last_used"] = _utc_now()
     _save_webauthn_creds(all_creds)
     response = JSONResponse({"ok": True, "redirect": "/"})
-    response.set_cookie(AUTH_COOKIE, _sign_auth(owner, role), httponly=True, secure=True, samesite="lax")
+    response.set_cookie(AUTH_COOKIE, _sign_auth(owner, role), httponly=True, secure=True, samesite="lax", max_age=AUTH_TTL_SECONDS)
     response.delete_cookie(WA_CHALLENGE_COOKIE, path="/")
     return response
 
