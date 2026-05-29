@@ -1643,6 +1643,63 @@ def _match_script_to_library(scenarios, library: dict) -> dict:
     return result
 
 
+def _step_descriptions_for_scenario(scenario) -> list:
+    """Rich, human-readable description per step: action + expected result."""
+    out = []
+    for st in getattr(scenario, "steps", []) or []:
+        d = st.action or ""
+        if st.expected_result:
+            d += f" — expected: {st.expected_result}"
+        out.append(d)
+    return out
+
+
+def _task_step_descriptions(entry: dict) -> list:
+    """Best step-level descriptions for a saved task: stored ones, else step
+    actions, else re-derived from the source scenario (backfill for old tasks)."""
+    if entry.get("step_descriptions"):
+        return entry["step_descriptions"]
+    if entry.get("step_actions"):
+        return entry["step_actions"]
+    sid = entry.get("scenario_id")
+    if sid:
+        sc = next((s for s in _load_scenarios() if s.scenario_id == sid), None)
+        if sc:
+            return _step_descriptions_for_scenario(sc)
+    return []
+
+
+def _ai_task_description(scenario, user_note: str) -> str:
+    """Write a clear, detailed description of what a task accomplishes, so it can
+    be recognised later under different wording. Falls back to the user's note."""
+    fallback = (user_note or "").strip() or (getattr(scenario, "name", "") or "")
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key or not getattr(scenario, "steps", None):
+        return fallback
+    steps_txt = "\n".join(
+        f"{i+1}. {st.action}" + (f" (expected: {st.expected_result})" if st.expected_result else "")
+        for i, st in enumerate(scenario.steps)
+    )
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=300,
+            messages=[{"role": "user", "content": (
+                "Write a clear, detailed 2-4 sentence description of what this SAP SuccessFactors task "
+                "accomplishes — its goal and the key actions — so it can be recognised later even when "
+                "described in different words. Avoid UI minutiae.\n\n"
+                f"Task name: {scenario.name}\n"
+                + (f"User note: {user_note}\n" if user_note else "")
+                + f"Steps:\n{steps_txt}\n\nReturn only the description."
+            )}],
+        )
+        return msg.content[0].text.strip() or fallback
+    except Exception:
+        return fallback
+
+
 def _coverage_for_scenario(scenario, library: dict) -> dict:
     """Best-matching library task + per-step coverage for ONE scenario.
     Returns {"matched_task": name|None, "reason": str, "coverage": {step_id: bool}}.
@@ -1655,11 +1712,14 @@ def _coverage_for_scenario(scenario, library: dict) -> dict:
         return out
     task_lines = []
     for n, e in tasks.items():
-        acts = e.get("step_actions") or []
-        known = "; ".join(acts) if acts else e.get("description", n)
+        sd = _task_step_descriptions(e)
+        known = " | ".join(sd) if sd else e.get("description", n)
         n_saved = len(e.get("steps") or {})
-        task_lines.append(f"- {n}: goal = {e.get('description', n)} | has saved commands for {n_saved} step(s) | known step actions = {known}")
-    step_lines = [f"[{st.step_id}] {st.action}" for st in scenario.steps]
+        task_lines.append(f"- {n}: goal = {e.get('description', n)} | has saved commands for {n_saved} step(s) | its steps = {known}")
+    step_lines = [
+        f"[{st.step_id}] {st.action}" + (f" (expected: {st.expected_result})" if st.expected_result else "")
+        for st in scenario.steps
+    ]
     try:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
@@ -1712,13 +1772,16 @@ def api_coverage(request: Request, scenario_id: str, script: str = ""):
         {"step_id": st.step_id, "action": st.action, "covered": bool(cov["coverage"].get(st.step_id))}
         for st in scenario.steps
     ]
+    covered_count = sum(1 for s in steps if s["covered"])
+    total = len(steps)
     return JSONResponse({
         "ok": True,
         "matched_task": cov["matched_task"],
         "reason": cov["reason"],
         "steps": steps,
-        "covered_count": sum(1 for s in steps if s["covered"]),
-        "total": len(steps),
+        "covered_count": covered_count,
+        "total": total,
+        "confidence": round(covered_count / total * 100) if total else 0,
         "library_tasks": [n for n, e in library.items() if isinstance(e, dict) and e.get("steps")],
     })
 
@@ -3192,12 +3255,16 @@ def add_to_library(
     # Save the human-readable step actions too, so future matching can align a new
     # scenario's steps to this task by MEANING (covered vs gap), not just by name.
     step_actions = [st.action for st in scenario.steps] if scenario else []
+    step_descriptions = _step_descriptions_for_scenario(scenario) if scenario else []
+    detailed = _ai_task_description(scenario, task_description) if scenario else task_description
     data = _load_library()
     data[task_name] = {
-        "description": task_description,
+        "description": detailed,
+        "note": task_description,
         "scenario_id": scenario_id,
         "steps": steps or {},
         "step_actions": step_actions,
+        "step_descriptions": step_descriptions,
         "has_learned_commands": learned,
     }
     _save_library(data)
