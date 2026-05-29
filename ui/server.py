@@ -1665,9 +1665,18 @@ def home(request: Request):
     )
 
 
+def _run_script(run_id: str) -> str:
+    """The script (vault key) a run was launched from, recorded at run_started."""
+    for e in _load_audit(run_id):
+        if e.get("event") == "run_started":
+            return str(e.get("details", {}).get("script", "") or "")
+    return ""
+
+
 @app.get("/scenario/{scenario_id}", response_class=HTMLResponse)
 def scenario_detail(request: Request, scenario_id: str):
-    scenarios = _load_scenarios()
+    selected_script = (request.query_params.get("script") or "").strip()
+    scenarios = _load_scenarios(selected_script or None)
     scenario = next((s for s in scenarios if s.scenario_id == scenario_id), None)
     if not scenario:
         return HTMLResponse("Scenario not found", status_code=404)
@@ -1676,11 +1685,16 @@ def scenario_detail(request: Request, scenario_id: str):
     runs = sorted(RUNS_DIR.iterdir(), reverse=True) if RUNS_DIR.exists() else []
     latest_run = None
 
+    def _in_scope(run_name: str) -> bool:
+        # A fresh script shows only its OWN runs — it never inherits another
+        # script's evidence just because they share a scenario id.
+        return (not selected_script) or _run_script(run_name) == selected_script
+
     # Collect the most recent screenshot per step across ALL runs (for click-to-train).
     # Prefer _fail shots — they show exactly where it broke.
     step_screenshots: dict[str, str] = {}
     for run in runs:
-        if not run.is_dir():
+        if not run.is_dir() or not _in_scope(run.name):
             continue
         for shot in sorted(run.glob(f"{scenario_id}-*.png")):
             base = _re.sub(r'_(fail|retry\d*)$', '', shot.stem)
@@ -1689,7 +1703,7 @@ def scenario_detail(request: Request, scenario_id: str):
                 step_screenshots[base] = url
 
     for run in runs:
-        if not run.is_dir():
+        if not run.is_dir() or not _in_scope(run.name):
             continue
         shots = sorted(run.glob(f"{scenario_id}-*.png"))
         if not shots:
@@ -1728,6 +1742,7 @@ def scenario_detail(request: Request, scenario_id: str):
             "scenario": scenario,
             "role_color": _role_color(scenario.role),
             "run": latest_run,
+            "selected_script": selected_script,
             "stats": _stats(),
             "step_statuses": step_statuses,
             "step_feedback": feedback,
@@ -1870,9 +1885,10 @@ async def trigger_run(scenario_id: str, request: Request):
     # Accept optional pre-run answers (e.g. proxy_name, candidate_name) + supervised flag
     try:
         body = await request.json()
-        pre_answers = {k: v for k, v in body.items() if k not in ("supervised", "live", "_lib_vars")} if isinstance(body, dict) else {}
+        pre_answers = {k: v for k, v in body.items() if k not in ("supervised", "live", "_lib_vars", "script")} if isinstance(body, dict) else {}
         supervised = bool(body.get("supervised", False)) if isinstance(body, dict) else False
         live_mode = bool(body.get("live", False)) if isinstance(body, dict) else False
+        script_key = str(body.get("script", "")).strip() if isinstance(body, dict) else ""
         # Library template variables (e.g. target_employee_name) — merge into context
         lib_vars = body.get("_lib_vars") if isinstance(body, dict) else None
         if isinstance(lib_vars, dict):
@@ -1881,10 +1897,12 @@ async def trigger_run(scenario_id: str, request: Request):
         pre_answers = {}
         supervised = False
         live_mode = False
+        lib_vars = None
+        script_key = ""
 
     user = _current_user(request)
     run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-    _ACTIVE_RUNS[scenario_id] = {"status": "running", "run_id": run_id, "supervised": supervised, "live_mode": live_mode, "user": user}
+    _ACTIVE_RUNS[scenario_id] = {"status": "running", "run_id": run_id, "supervised": supervised, "live_mode": live_mode, "user": user, "script": script_key}
     _append_audit(
         run_id,
         "run_started",
@@ -1897,6 +1915,7 @@ async def trigger_run(scenario_id: str, request: Request):
             "answers": pre_answers,
             "library_variables_used": bool(lib_vars),
             "step_count": len(scenario.steps),
+            "script": script_key,
         },
     )
 
@@ -3034,22 +3053,27 @@ def add_to_library(
     task_description: str = Form(...),
     scenario_id: str = Form(...),
 ):
-    # Pull the full locked step sequence for this scenario
+    # Prefer the locked/approved command sequence (best for replay), then learned
+    # feedback, then the scenario's own step actions. We never hard-fail: the task
+    # MUST land in the library so Claude can recognise it on future uploads —
+    # recognition uses name/description/steps; replay sharpens once a run is locked.
     approved = _load_approved().get(scenario_id, {})
-    steps = approved.get("step_commands", {})
+    steps = approved.get("step_commands", {}) or _load_feedback().get(scenario_id, {})
+    learned = bool(steps)
     if not steps:
-        # Fall back to regular feedback if not formally approved
-        steps = _load_feedback().get(scenario_id, {})
-    if not steps:
-        raise HTTPException(400, "No locked steps found for this scenario — approve it first")
+        scenario = next((s for s in _load_scenarios() if s.scenario_id == scenario_id), None)
+        if scenario:
+            steps = {st.step_id: (st.action or "") for st in scenario.steps}
     data = _load_library()
     data[task_name] = {
         "description": task_description,
-        "steps": steps,  # {step_id: commands, ...} — full task sequence
+        "scenario_id": scenario_id,
+        "steps": steps or {},
+        "has_learned_commands": learned,
     }
     _save_library(data)
     threading.Thread(target=_git_push_library, daemon=True).start()
-    return JSONResponse({"ok": True})
+    return JSONResponse({"ok": True, "learned": learned})
 
 
 @app.delete("/api/library/{task_name}")

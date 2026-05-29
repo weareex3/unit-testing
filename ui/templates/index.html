@@ -159,7 +159,7 @@
         </div>
         <div class="scenario-list">
           {% for s in group.scenarios %}
-          <a href="/scenario/{{ s.id }}" data-card data-status="{{ s.status }}" data-search="{{ s.id }} {{ s.name|lower }} {{ s.role|lower }}" class="scenario-row">
+          <a href="/scenario/{{ s.id }}?script={{ selected_workbook|urlencode }}" data-card data-status="{{ s.status }}" data-search="{{ s.id }} {{ s.name|lower }} {{ s.role|lower }}" class="scenario-row">
             <span class="dot {% if s.status == 'pass' %}dot-green{% elif s.status == 'fail' %}dot-red{% elif s.status == 'blocked' %}dot-orange{% else %}dot-gray{% endif %}"></span>
             <span class="badge badge-id">{{ s.id }}</span>
             <span class="scenario-name">{{ s.name }}</span>

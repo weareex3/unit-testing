@@ -337,6 +337,7 @@
 
 <script>
   const SCENARIO_ID = "{{ scenario.scenario_id }}";
+  const SCRIPT_KEY = "{{ selected_script }}";
   const EXISTING_FEEDBACK = {{ step_feedback | tojson }};
   const STEP_SCREENSHOTS = {{ step_screenshots | tojson }};
   let _selectedStep = null;
@@ -950,6 +951,7 @@
     const answers = await _showQuestionsIfNeeded(_libVars || {});
     if (supervised) answers.supervised = true;
     if (_libVars) answers._lib_vars = _libVars;
+    answers.script = SCRIPT_KEY;
 
     label.textContent = supervised ? 'Running (supervised)…' : 'Running…';
     const res = await fetch(`/api/run/${SCENARIO_ID}`, {
@@ -996,6 +998,7 @@
 
     const answers = await _showQuestionsIfNeeded();
     answers.live = true;
+    answers.script = SCRIPT_KEY;
 
     label.textContent = 'Logging in…';
     const res = await fetch(`/api/run/${SCENARIO_ID}`, {
@@ -1087,7 +1090,7 @@
     const saved = await _saveFeedback(false);
     if (!saved) { retryBtn.textContent = 'Save failed'; retryBtn.disabled = false; return; }
     retryBtn.textContent = 'Starting run…';
-    const runRes = await fetch(`/api/run/${SCENARIO_ID}`, { method: 'POST' });
+    const runRes = await fetch(`/api/run/${SCENARIO_ID}`, { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({script: SCRIPT_KEY}) });
     if (!runRes.ok) { retryBtn.textContent = 'Could not start — try Run scenario button'; retryBtn.disabled = false; return; }
     retryBtn.textContent = 'Running…';
     statusEl.textContent = 'Running with your feedback — page will reload when done';
