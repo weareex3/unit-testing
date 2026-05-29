@@ -63,6 +63,7 @@ def parse_workbook(path: str) -> List[TestScenario]:
     scenarios: dict[str, TestScenario] = {}
     current_scenario_name: str = ""
     current_role: str = ""
+    current_script_id: str = ""
     step_counter: dict[str, int] = {}
 
     for row in ws.iter_rows(values_only=True):
@@ -74,10 +75,15 @@ def parse_workbook(path: str) -> List[TestScenario]:
         if _is_column_header(row) or _is_section_header(row):
             continue
 
-        # Skip rows where Script ID is missing or non-string/non-step
-        script_id = _cell(row, COL_SCRIPT_ID)
+        # Carry the Script ID forward. Many workbooks write it only on the FIRST
+        # row of a scenario and leave it blank on the following step rows — those
+        # blank-ID rows are continuation steps of the same scenario, not noise.
+        raw_script_id = _cell(row, COL_SCRIPT_ID)
+        if raw_script_id:
+            current_script_id = raw_script_id
+        script_id = current_script_id
         if not script_id:
-            continue
+            continue  # nothing has started a scenario yet
 
         # Carry forward scenario name and role from first row of each scenario
         scenario_name = _cell(row, COL_SCENARIO)
@@ -91,6 +97,10 @@ def parse_workbook(path: str) -> List[TestScenario]:
         test_data = _cell(row, COL_TEST_DATA)
         expected = _cell(row, COL_EXPECTED)
         notes = _cell(row, COL_COMMENTS)
+
+        # A row with no action, expected result, or test data isn't a real step.
+        if not action and not expected and not test_data:
+            continue
 
         # Derive the module from the script ID prefix (e.g. LOGIN, RCM)
         module = script_id.split("-")[0] if "-" in script_id else script_id
