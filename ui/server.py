@@ -1562,6 +1562,79 @@ def _stats(workbook: str | None = None):
     }
 
 
+def _load_step_library() -> dict:
+    if LIBRARY_FILE.exists():
+        try:
+            data = json.loads(LIBRARY_FILE.read_text())
+            if isinstance(data, dict):
+                return data
+        except Exception:
+            return {}
+    return {}
+
+
+def _match_script_to_library(scenarios, library: dict) -> dict:
+    """Ask Claude which known task each scenario performs (by process, not name).
+    Returns {scenario_id: matched_task_name or None}."""
+    result = {s.scenario_id: None for s in scenarios}
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    tasks = {n: e for n, e in library.items() if isinstance(e, dict) and e.get("steps")}
+    if not api_key or not tasks or not scenarios:
+        return result
+    task_lines = "\n".join(f"- {n}: {e.get('description', n)}" for n, e in tasks.items())
+    scen_lines = []
+    for s in scenarios:
+        steps = "; ".join((st.action or "") for st in s.steps[:6])
+        scen_lines.append(f"[{s.scenario_id}] {s.name} — steps: {steps}")
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[{"role": "user", "content": (
+                "You match SAP SuccessFactors test scenarios to a library of known tasks by the "
+                "PROCESS they perform, not by their wording — a task named differently but doing the "
+                "same steps is a match.\n\n"
+                f"Known tasks:\n{task_lines}\n\n"
+                f"Scenarios:\n" + "\n".join(scen_lines) + "\n\n"
+                "Reply with ONLY a JSON object mapping each scenario id to the exact known task name it "
+                "matches, or to null if none match. Example: {\"LOGIN-102\": \"Proxy Login\", \"LOGIN-101\": null}"
+            )}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            raw = raw[4:] if raw.startswith("json") else raw
+        parsed = json.loads(raw.strip())
+        for sid, name in parsed.items():
+            if sid in result and isinstance(name, str) and name in tasks:
+                result[sid] = name
+    except Exception as exc:
+        print(f"[match] error: {exc}")
+    return result
+
+
+@app.get("/api/match")
+def api_match(request: Request, script: str = ""):
+    scenarios = _load_scenarios(script or None)
+    if not scenarios:
+        return JSONResponse({"ok": False, "error": "No scenarios found for this script"})
+    library = _load_step_library()
+    matches = _match_script_to_library(scenarios, library)
+    results = [
+        {"scenario_id": s.scenario_id, "name": s.name, "matched_to": matches.get(s.scenario_id)}
+        for s in scenarios
+    ]
+    return JSONResponse({
+        "ok": True,
+        "total": len(results),
+        "matched": sum(1 for r in results if r["matched_to"]),
+        "library_size": len([e for e in library.values() if isinstance(e, dict) and e.get("steps")]),
+        "results": results,
+    })
+
+
 @app.get("/", response_class=HTMLResponse)
 def home(request: Request):
     selected_workbook = request.query_params.get("script") or None
