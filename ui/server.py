@@ -1657,7 +1657,8 @@ def _coverage_for_scenario(scenario, library: dict) -> dict:
     for n, e in tasks.items():
         acts = e.get("step_actions") or []
         known = "; ".join(acts) if acts else e.get("description", n)
-        task_lines.append(f"- {n}: goal = {e.get('description', n)} | known steps = {known}")
+        n_saved = len(e.get("steps") or {})
+        task_lines.append(f"- {n}: goal = {e.get('description', n)} | has saved commands for {n_saved} step(s) | known step actions = {known}")
     step_lines = [f"[{st.step_id}] {st.action}" for st in scenario.steps]
     try:
         import anthropic
@@ -1685,9 +1686,16 @@ def _coverage_for_scenario(scenario, library: dict) -> dict:
         name = parsed.get("matched_task")
         if isinstance(name, str) and name in tasks:
             covered = set(parsed.get("covered_step_ids") or [])
+            # Also covered: any step the matched task already has a saved command
+            # for (e.g. it was learned from this same scenario). The AI's judgement
+            # handles reworded/cross-scenario cases; this handles exact reuse.
+            saved_step_ids = set((tasks[name].get("steps") or {}).keys())
             out["matched_task"] = name
             out["reason"] = str(parsed.get("reason", ""))[:240]
-            out["coverage"] = {st.step_id: (st.step_id in covered) for st in scenario.steps}
+            out["coverage"] = {
+                st.step_id: (st.step_id in covered or st.step_id in saved_step_ids)
+                for st in scenario.steps
+            }
     except Exception as exc:
         print(f"[coverage] error: {exc}")
     return out
