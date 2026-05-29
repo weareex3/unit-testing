@@ -82,7 +82,38 @@ def _seed_persistent_storage() -> None:
                     print(f"[seed] {src.name}: {exc}")
 
 
+def _repair_library_if_corrupt() -> None:
+    """Self-heal: if the on-disk step library has no valid task entries (e.g. it
+    got overwritten with a stray API body), restore it from the committed seed so
+    learned tasks aren't lost to corruption."""
+    lib_file = _DATA_ROOT / "storage" / "global" / "step_library.json"
+    seed_file = ROOT / "storage" / "global" / "step_library.json"
+    try:
+        valid = {}
+        if lib_file.exists():
+            raw = json.loads(lib_file.read_text())
+            if isinstance(raw, dict):
+                valid = {k: v for k, v in raw.items() if isinstance(v, dict)}
+        if valid:
+            # Drop any non-dict junk but keep real tasks.
+            if lib_file.exists() and json.loads(lib_file.read_text()) != valid:
+                lib_file.write_text(json.dumps(valid, indent=2))
+                print(f"[library] cleaned {len(valid)} task(s); dropped corrupt entries")
+            return
+        # No valid tasks on disk — restore from seed if it has any.
+        if seed_file.exists():
+            seed = json.loads(seed_file.read_text())
+            seed = {k: v for k, v in seed.items() if isinstance(v, dict)} if isinstance(seed, dict) else {}
+            if seed:
+                lib_file.parent.mkdir(parents=True, exist_ok=True)
+                lib_file.write_text(json.dumps(seed, indent=2))
+                print(f"[library] corrupt/empty — restored {len(seed)} task(s) from seed")
+    except Exception as exc:
+        print(f"[library] repair failed: {exc}")
+
+
 _seed_persistent_storage()
+_repair_library_if_corrupt()
 
 
 def _restore_feedback_from_approved() -> None:
@@ -312,18 +343,27 @@ MATCH_CACHE_FILE = _DATA_ROOT / "storage" / "global" / "match_cache.json"
 
 # ── Global step library ───────────────────────────────────────────────────────
 
+def _clean_library(data) -> dict:
+    """Keep only valid task entries (name -> dict). Drops corruption like a stray
+    {"ok": true, "error": "..."} API body that must never poison matching."""
+    if not isinstance(data, dict):
+        return {}
+    return {str(k): v for k, v in data.items() if isinstance(v, dict)}
+
+
 def _load_library() -> dict:
     if LIBRARY_FILE.exists():
         try:
-            return json.loads(LIBRARY_FILE.read_text())
+            return _clean_library(json.loads(LIBRARY_FILE.read_text()))
         except Exception:
             return {}
     return {}
 
 
 def _save_library(data: dict) -> None:
+    # Never persist anything that isn't a dict-of-task-dicts.
     LIBRARY_FILE.parent.mkdir(parents=True, exist_ok=True)
-    LIBRARY_FILE.write_text(json.dumps(data, indent=2))
+    LIBRARY_FILE.write_text(json.dumps(_clean_library(data), indent=2))
 
 
 def _load_match_cache() -> dict:
@@ -1837,7 +1877,7 @@ def _stats(workbook: str | None = None):
 def _load_step_library() -> dict:
     if LIBRARY_FILE.exists():
         try:
-            data = json.loads(LIBRARY_FILE.read_text())
+            data = _clean_library(json.loads(LIBRARY_FILE.read_text()))
             if isinstance(data, dict):
                 return data
         except Exception:
