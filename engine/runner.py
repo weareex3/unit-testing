@@ -174,9 +174,13 @@ def run_scenario(
             if forced_library_task and forced_library_task in _library:
                 _forced_entry = _library.get(forced_library_task) or {}
                 _library_steps = _forced_entry.get("steps") or {}
-                print(f"  [library] forced task: {forced_library_task}")
+                print(f"  [library] using chosen task: {forced_library_task}")
             else:
-                _library_steps = _library_task_match(steps, _library) if _library else {}
+                # NO silent best-guess. A library task is used ONLY when the user
+                # explicitly chooses it (forced_library_task). Otherwise this scenario
+                # runs ONLY its own trained commands. Matching is surfaced in the UI as
+                # a suggestion the user accepts — it is never auto-applied to a run.
+                _library_steps = {}
             # library steps are keyed by step_id; build a positional fallback by index too
             _library_by_index = {str(i): cmd for i, cmd in enumerate(_library_steps.values())}
 
@@ -321,7 +325,13 @@ def run_scenario(
                 # (verifier error / no API key) returns ok=True and does NOT block.
                 # Only gates fully-automated runs — manual / live steps are driven by
                 # the human and aren't second-guessed.
-                if step_result.passed and step_result.screenshot_path and not manual and not live_mode:
+                # TRUST SAVED COMMANDS (restores the 05-19 behaviour — commit
+                # 8c6ff72 "Revert verify_step_result on direct commands — was failing
+                # working proxy steps"). A step that ran a recorded/saved command is
+                # NOT failed by the verifier; it just runs and completes. The verifier
+                # only GATES AI-guessed (non-direct) steps to catch fake passes there.
+                _ran_direct = _has_direct_commands(step_feedback)
+                if step_result.passed and step_result.screenshot_path and not manual and not live_mode and not _ran_direct:
                     expected = expected_overrides.get(step.step_id) or step.expected_result
                     ok, reason = _verify_step(
                         step_result.screenshot_path,
@@ -335,6 +345,8 @@ def run_scenario(
                         print(f"  [verify] {step.step_id}: FAIL — {reason} -> handing to human")
                         step_result.passed = False
                         step_result.error_message = f"Verification failed — expected result not visible: {reason}"
+                elif _ran_direct:
+                    print(f"  [verify] {step.step_id}: trusted (ran saved command, not re-verified)")
 
                 # If failed and we have a pause callback — ask human for help
                 if not step_result.passed and pause_callback:
