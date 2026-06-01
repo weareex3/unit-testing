@@ -234,6 +234,12 @@ def _pause_callback(scenario_id: str, step_id: str, screenshot_path: str, run_id
                 print(f"  [live-seed] seeded {shot_path.stat().st_size // 1024}KB from {Path(screenshot_path).name}")
             except Exception:
                 pass
+        else:
+            try:
+                page.screenshot(path=str(shot_path))
+                print(f"  [live-seed] captured fresh pause screenshot {shot_path.stat().st_size // 1024}KB")
+            except Exception as _exc:
+                print(f"  [live-seed] fresh screenshot failed: {_exc}")
 
         print(f"  [pause] {scenario_id} paused on {step_id} — live control active")
 
@@ -765,7 +771,7 @@ def _run_records(company: str | None = None) -> list[dict]:
     scenarios = _scenario_lookup()
     records = []
     if RUNS_DIR.exists():
-        for run_dir in sorted([p for p in RUNS_DIR.iterdir() if p.is_dir()], reverse=True):
+        for run_dir in sorted([p for p in RUNS_DIR.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True):
             rec = _run_record(run_dir, scenarios)
             if company is None or rec.get("company") == company:
                 records.append(rec)
@@ -2182,7 +2188,28 @@ def api_batch_plan(request: Request, script: str = ""):
 
 def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers: dict, user: dict) -> None:
     run_id = f"{batch_id}_{scenario.scenario_id}"
-    item.update({"status": "running", "run_id": run_id, "started_at": _utc_now(), "error": ""})
+    if scenario.scenario_id in _PAUSE_EVENTS:
+        _PAUSE_FIX[scenario.scenario_id] = None
+        _PAUSE_EVENTS[scenario.scenario_id].set()
+    _LIVE_SHOT_PATHS.pop(scenario.scenario_id, None)
+    _LIVE_QUEUES.pop(scenario.scenario_id, None)
+
+    existing_approved = ((_load_approved().get(scenario.scenario_id, {}) or {}).get("step_commands", {}) or {})
+    existing_feedback = _load_feedback().get(scenario.scenario_id, {}) or {}
+    pre_saved_commands = {**existing_feedback, **existing_approved}
+    trained_step_ids = {
+        step_id
+        for step_id, commands in pre_saved_commands.items()
+        if _has_replay_commands(commands)
+    }
+    fully_trained = all(st.step_id in trained_step_ids for st in scenario.steps)
+    item.update({
+        "status": "running",
+        "run_id": run_id,
+        "started_at": _utc_now(),
+        "error": "",
+        "trained_to_library": False,
+    })
     _ACTIVE_RUNS[scenario.scenario_id] = {
         "status": "running",
         "run_id": run_id,
@@ -2247,12 +2274,22 @@ def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers:
         step_done_callback=_step_done,
         check_pause_fn=lambda sid: _FORCE_PAUSE.pop(sid, False),
         live_mode=False,
+        # Run All now acts as an assisted agent. It replays learned steps, lets
+        # Claude Vision attempt unknown steps, and hands over to the human when
+        # it cannot continue or reaches a final Save/Submit.
         use_memory=True,
         manual=False,
-        no_guess=True,
-        unattended=True,
+        no_guess=fully_trained,
+        # Run All is allowed to pause into live control. Unknown steps should be
+        # trained in the same browser session so later scenarios can continue.
+        unattended=False,
         run_id_override=run_id,
     )
+    latest_approved = ((_load_approved().get(scenario.scenario_id, {}) or {}).get("step_commands", {}) or {})
+    latest_feedback = _load_feedback().get(scenario.scenario_id, {}) or {}
+    merged_commands = {**latest_approved, **latest_feedback}
+    if result.passed and merged_commands and merged_commands != pre_saved_commands:
+        item["pending_library_review"] = True
     videos = sorted((RUNS_DIR / run_id).glob("*.webm"))
     item["video_url"] = f"/runs/{run_id}/{videos[0].name}" if videos else ""
     item["ended_at"] = _utc_now()
@@ -2276,6 +2313,51 @@ def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers:
         "user": user,
         "script": script,
     }
+
+
+_REPLAY_PREFIXES = ("CLICK:", "CLICK_XY:", "TYPE:", "PRESS:", "WAIT:", "FILL:", "SHADOW_CLICK:", "GOTO:", "NAVIGATE:", "SELECT:", "SELECT_OPTION:", "JS:")
+
+
+def _has_replay_commands(commands: str) -> bool:
+    return any(str(line).strip().upper().startswith(_REPLAY_PREFIXES) for line in (commands or "").splitlines())
+
+
+def _save_reviewed_task_to_library(scenario, commands: dict, user: dict, run_id: str, task_name: str = "", note: str = "") -> dict:
+    """Lock a reviewed task and add it to the reusable library."""
+    if not commands:
+        return {"ok": False, "error": "No recorded commands to save."}
+    approved = _load_approved()
+    approved[scenario.scenario_id] = {
+        "approved_at": datetime.utcnow().isoformat(),
+        "step_commands": commands,
+    }
+    _save_approved(approved)
+
+    task_name = (task_name or getattr(scenario, "name", "") or scenario.scenario_id).strip()
+    note = (note or "Approved after reviewing the recorded run video.").strip()
+    library = _load_library()
+    library[task_name] = {
+        "description": _ai_task_description(scenario, note),
+        "note": note,
+        "scenario_id": scenario.scenario_id,
+        "steps": commands,
+        "step_actions": [st.action for st in scenario.steps],
+        "step_descriptions": _step_descriptions_for_scenario(scenario),
+        "has_learned_commands": True,
+    }
+    _save_library(library)
+    _append_audit(
+        run_id,
+        "library_task_reviewed_saved",
+        "Reviewed run saved to Task Library",
+        scenario_id=scenario.scenario_id,
+        user=user,
+        status="saved",
+        details={"task_name": task_name, "steps_saved": len(commands)},
+    )
+    threading.Thread(target=_git_push_approved, daemon=True).start()
+    threading.Thread(target=_git_push_library, daemon=True).start()
+    return {"ok": True, "task_name": task_name, "steps_saved": len(commands)}
 
 
 @app.post("/api/batch/start")
@@ -2651,7 +2733,7 @@ def scenario_detail(request: Request, scenario_id: str):
         return HTMLResponse("Scenario not found", status_code=404)
 
     import re as _re
-    runs = sorted(RUNS_DIR.iterdir(), reverse=True) if RUNS_DIR.exists() else []
+    runs = sorted([p for p in RUNS_DIR.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True) if RUNS_DIR.exists() else []
     latest_run = None
 
     def _in_scope(run_name: str) -> bool:
@@ -3487,7 +3569,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
     # Static mode: find latest screenshot from a past run
     img_url = f"/api/live/{scenario_id}/screenshot" if live else ""
     if not live:
-        runs = sorted(RUNS_DIR.iterdir(), reverse=True) if RUNS_DIR.exists() else []
+        runs = sorted([p for p in RUNS_DIR.iterdir() if p.is_dir()], key=lambda p: p.stat().st_mtime, reverse=True) if RUNS_DIR.exists() else []
         for run in runs:
             if not run.is_dir():
                 continue
@@ -3777,6 +3859,34 @@ def approve_scenario(request: Request, scenario_id: str):
     )
     threading.Thread(target=_git_push_approved, daemon=True).start()
     return JSONResponse({"ok": True})
+
+
+@app.post("/api/scenario/{scenario_id}/approve-library")
+async def approve_scenario_and_save_library(request: Request, scenario_id: str):
+    """After the user reviews the video, lock the run and save it as a library task."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    task_name = str(body.get("task_name", "")).strip() if isinstance(body, dict) else ""
+    note = str(body.get("note", "")).strip() if isinstance(body, dict) else ""
+    scenario = next((s for s in _load_scenarios() if s.scenario_id == scenario_id), None)
+    if not scenario:
+        return JSONResponse({"ok": False, "error": "Scenario not found."}, status_code=404)
+    commands = _load_feedback().get(scenario_id, {}) or {}
+    if not commands:
+        return JSONResponse({"ok": False, "error": "There are no recorded step commands to save yet."}, status_code=400)
+    result = _save_reviewed_task_to_library(
+        scenario,
+        commands,
+        _current_user(request),
+        _latest_run_id_for_scenario(scenario_id),
+        task_name=task_name,
+        note=note,
+    )
+    if not result.get("ok"):
+        return JSONResponse(result, status_code=400)
+    return JSONResponse(result)
 
 
 @app.post("/api/scenario/{scenario_id}/unapprove")
