@@ -2146,9 +2146,6 @@ def api_batch_plan(request: Request, script: str = ""):
         cached = _compute_match_results(scenarios, library)
         _cache_matches(script or "__all__", cached, library_size, scenarios=scenarios)
 
-    import re as _re
-    _all_feedback = _load_feedback()
-    _all_approved = _load_approved()
     cached_by_id = {row["scenario_id"]: row for row in cached}
     items = []
     variables: dict[str, str] = {}
@@ -2158,14 +2155,6 @@ def api_batch_plan(request: Request, script: str = ""):
         covered = int(row.get("covered_count") or 0)
         matched = row.get("matched_to")
         task_vars = _library_entry_variables(library.get(matched, {})) if matched else []
-        # Also collect placeholders from THIS scenario's own saved commands, so a run
-        # asks for them (e.g. the proxy target name) even if the cached match points
-        # at a renamed/deleted library task.
-        _own = {}
-        _own.update(_all_feedback.get(scenario.scenario_id, {}) or {})
-        _own.update((_all_approved.get(scenario.scenario_id, {}) or {}).get("step_commands", {}) or {})
-        own_vars = [m for c in _own.values() for m in _re.findall(r"\{\{(\w+)\}\}", c or "")]
-        task_vars = sorted(set(task_vars) | set(own_vars))
         for var in task_vars:
             variables[var] = var.replace("_", " ").title()
         items.append({
