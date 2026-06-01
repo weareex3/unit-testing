@@ -89,6 +89,7 @@ CRITICAL RULES:
 - The step is only complete when the EXPECTED RESULT is achieved: "{step_expected}"
 - If a popup or panel is open, work through it completely — open menus, click options, confirm dialogs.
 - If a button is visible at a specific pixel location, use CLICK_XY with exact coordinates from the screenshot.
+- Do not click a final Save or Submit button. Stop with the form ready for a human to review and save.
 - Add WAIT: 1500 after any click that opens a menu, dialog, or triggers navigation.
 - Only output WAIT: 500 alone if this step is genuinely observation-only (no UI action whatsoever).
 - Never mark a step done until the expected result would actually be visible on screen.
@@ -107,8 +108,8 @@ Available commands (one per line):
 Output ONLY commands. No explanation, no markdown, no blank lines between commands."""
 
         msg = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=512,
+            model="claude-opus-4-8",
+            max_tokens=1024,
             system=(
                 "You are an expert in SAP SuccessFactors UI automation. You have deep knowledge of "
                 "SuccessFactors navigation patterns, shadow DOM structure, popup behaviours, and the "
