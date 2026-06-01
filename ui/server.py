@@ -2108,6 +2108,13 @@ def api_coverage(request: Request, scenario_id: str, script: str = ""):
     ]
     covered_count = sum(1 for s in steps if s["covered"])
     total = len(steps)
+    # Placeholders ({{name}}) in THIS scenario's own saved commands — so the run
+    # prompts for them even when not using a library task.
+    import re as _re
+    _own_cmds = {}
+    _own_cmds.update(_load_feedback().get(scenario_id, {}) or {})
+    _own_cmds.update((_load_approved().get(scenario_id, {}) or {}).get("step_commands", {}) or {})
+    scenario_variables = sorted({m for c in _own_cmds.values() for m in _re.findall(r"\{\{(\w+)\}\}", c or "")})
     return JSONResponse({
         "ok": True,
         "matched_task": cov["matched_task"],
@@ -2117,6 +2124,7 @@ def api_coverage(request: Request, scenario_id: str, script: str = ""):
         "total": total,
         "confidence": round(covered_count / total * 100) if total else 0,
         "library_tasks": [n for n, e in library.items() if isinstance(e, dict) and e.get("steps")],
+        "scenario_variables": scenario_variables,
         "task_variables": {
             n: _library_entry_variables(e)
             for n, e in library.items()

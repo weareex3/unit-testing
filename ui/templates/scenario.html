@@ -955,8 +955,16 @@
   function _renderPreflightVars(data) {
     const varsBox = document.getElementById('preflight-vars');
     const select = document.getElementById('preflight-force-task');
-    const taskName = select.value || data.matched_task || '';
-    const vars = ((data.task_variables || {})[taskName] || []);
+    // Running this scenario's own steps (no forced task) → prompt for the
+    // scenario's OWN placeholders. Forcing a library task → that task's variables.
+    let vars;
+    if (select.value) {
+      vars = (data.task_variables || {})[select.value] || [];
+    } else {
+      vars = (data.scenario_variables && data.scenario_variables.length)
+        ? data.scenario_variables
+        : ((data.task_variables || {})[data.matched_task || ''] || []);
+    }
     if (!vars.length) {
       varsBox.style.display = 'none';
       varsBox.innerHTML = '';
