@@ -1486,7 +1486,7 @@ def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None
     result = ScenarioResult(scenario_id="agent", run_id=run_id, passed=False)
 
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=True, args=[
+        browser = pw.chromium.launch(headless=True, slow_mo=400, args=[
             "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"])
         context = browser.new_context(
             record_video_dir=str(runs_dir), record_video_size={"width": 1280, "height": 720},

@@ -82,9 +82,12 @@
       const list = (steps.steps || []);
       if (list.length) {
         stepsBox.innerHTML = list.map((st, i) => `
-          <div style="display:flex;gap:10px;align-items:flex-start;font-size:13px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.6);border:1px solid var(--line);">
-            <span style="font-weight:800;color:#7d5d22;flex-shrink:0;">${i+1}</span>
-            <span style="color:var(--ink);">${(st.error||'').replace(/</g,'&lt;') || 'working…'}</span>
+          <div style="border-radius:12px;background:rgba(255,255,255,.6);border:1px solid var(--line);overflow:hidden;">
+            <div style="display:flex;gap:10px;align-items:flex-start;font-size:13px;padding:10px 12px;">
+              <span style="font-weight:800;color:#7d5d22;flex-shrink:0;">${i+1}</span>
+              <span style="color:var(--ink);">${(st.error||'').replace(/</g,'&lt;') || 'working…'}</span>
+            </div>
+            ${st.screenshot_url ? `<img src="${st.screenshot_url}" style="width:100%;display:block;border-top:1px solid var(--line);" loading="lazy" />` : ''}
           </div>`).join('');
       }
       if (s.status === 'done' || s.status === 'error') {
