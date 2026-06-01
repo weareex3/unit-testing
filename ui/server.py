@@ -2669,7 +2669,7 @@ async def api_lab_run(request: Request):
     def _run():
         try:
             result = run_agent_goal(goal, preview=True, runs_root=RUNS_DIR, run_id_override=run_id,
-                                    step_done_callback=_step_done, max_iters=12)
+                                    step_done_callback=_step_done, max_iters=25)
             _write("done")
             _ACTIVE_RUNS["agent"] = {"status": "done", "run_id": run_id, "passed": result.passed, "user": user}
         except Exception as exc:

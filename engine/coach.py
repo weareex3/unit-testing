@@ -290,6 +290,13 @@ RULES:
 - Prefer stable text targets over coordinates: CLICK: <visible text>, FILL: <label> | <value>,
   NAVIGATE: <Module>. Use CLICK_XY only as a last resort when there's no readable text.
 - For a search/result list, type the value, WAIT, then CLICK the matching result by its name.
+- DIRECT-EDIT RULE: if the data you need to edit is ALREADY visible on screen in a card/portlet
+  (e.g. an "Addresses", "Job Information", or "Personal Information" card) with an Edit/pencil
+  icon, click THAT pencil/Edit icon directly. Do NOT open Actions menus or extra sub-navigation
+  to reach something already on screen.
+- ANTI-REPEAT RULE: never click the same target twice in a row. If the screen did not change
+  after your last action, the click missed — try a DIFFERENT target (the avatar, a row, a link,
+  a nearby element) or a different approach, rather than repeating the same click.
 - Add WAIT: 1500 after anything that opens a menu/dialog or navigates.
 - Set done=true ONLY when the goal is fully achieved (or, in preview, when you've reached the
   point just before the final commit).{preview_rule}
