@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+{% block title %}Testing Hub - EX3 TestOps{% endblock %}
+
+{% block content %}
+<div class="topbar">
+  <nav class="breadcrumb">
+    <a href="/" class="breadcrumb-link">Workspace</a>
+    <span class="breadcrumb-sep">/</span>
+    <span class="breadcrumb-current">Testing Hub</span>
+  </nav>
+</div>
+
+<div class="content">
+  <div class="content-inner" style="max-width:780px;">
+    <div style="margin-bottom:20px;">
+      <div class="page-kicker">Experiment · isolated</div>
+      <h1 class="page-title">Testing Hub</h1>
+      <p class="page-copy">
+        Describe — in plain English — what you'd like Claude to do in SuccessFactors, and the
+        <strong>blind AI agent (Opus)</strong> will read the screen and try to do it on its own, with no
+        script and no training. e.g. <em>"Proxy as Esther Loh, then open her job information."</em>
+        <strong>Preview mode: it navigates and fills only — it will not Save/commit anything.</strong>
+        This is an experiment, fully isolated — nothing here affects the rest of the site.
+      </p>
+    </div>
+
+    <div class="surface" style="padding:22px;">
+      <label style="display:block;font-size:12px;font-weight:750;color:var(--muted);margin-bottom:6px;">What would you like Claude to do?</label>
+      <textarea id="lab-goal" class="input" rows="3" style="resize:vertical;margin-bottom:14px;"
+        placeholder="e.g. Proxy as Esther Loh, then go to her Job Information"></textarea>
+
+      <button id="lab-run" class="btn btn-primary" type="button" style="min-height:42px;">▶ Let Claude do it (preview, no save)</button>
+      <span id="lab-status" style="margin-left:12px;font-size:13px;color:var(--muted);"></span>
+
+      <div id="lab-result" style="display:none;margin-top:20px;">
+        <div class="section-label" style="margin-bottom:8px;">Claude's moves</div>
+        <div id="lab-steps" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
+        <video id="lab-video" controls style="display:none;width:100%;border-radius:12px;background:#11100e;"></video>
+      </div>
+    </div>
+    <p style="font-size:12px;color:var(--muted);margin-top:12px;">
+      Runs against the preview SF tenant. It's the experimental frontier — the agent may get stuck on a
+      step (expected for a blind, untrained task). Costs a few cents per run (Opus vision per move).
+    </p>
+  </div>
+</div>
+
+{% raw %}
+<script>
+(function(){
+  const btn = document.getElementById('lab-run');
+  const status = document.getElementById('lab-status');
+  const result = document.getElementById('lab-result');
+  const stepsBox = document.getElementById('lab-steps');
+  const video = document.getElementById('lab-video');
+  let poll = null, runId = null;
+
+  btn.addEventListener('click', async () => {
+    const goal = document.getElementById('lab-goal').value.trim();
+    if (!goal) { status.textContent = 'Type what you want it to do first.'; return; }
+    btn.disabled = true;
+    result.style.display = 'block';
+    stepsBox.innerHTML = '<div style="font-size:13px;color:#9a948a;">Logging in and reading the screen…</div>';
+    video.style.display = 'none';
+    status.textContent = 'Claude is working…';
+    try {
+      const res = await fetch('/api/lab/run', {
+        method: 'POST', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({goal})
+      });
+      const d = await res.json();
+      if (!d.ok) { status.textContent = d.error || 'Could not start'; btn.disabled = false; return; }
+      runId = d.run_id;
+      poll = setInterval(pollStatus, 2500);
+    } catch (e) { status.textContent = 'Failed to start'; btn.disabled = false; }
+  });
+
+  async function pollStatus(){
+    try {
+      const s = await (await fetch('/api/run/agent/status')).json();
+      const steps = await (await fetch('/api/run/agent/steps')).json();
+      const list = (steps.steps || []);
+      if (list.length) {
+        stepsBox.innerHTML = list.map((st, i) => `
+          <div style="display:flex;gap:10px;align-items:flex-start;font-size:13px;padding:8px 10px;border-radius:10px;background:rgba(255,255,255,.6);border:1px solid var(--line);">
+            <span style="font-weight:800;color:#7d5d22;flex-shrink:0;">${i+1}</span>
+            <span style="color:var(--ink);">${(st.error||'').replace(/</g,'&lt;') || 'working…'}</span>
+          </div>`).join('');
+      }
+      if (s.status === 'done' || s.status === 'error') {
+        clearInterval(poll); btn.disabled = false;
+        status.textContent = s.status === 'done' ? 'Done.' : ('Stopped: ' + (s.error || 'agent stopped'));
+        if (runId) {
+          const v = await (await fetch('/api/lab/video/' + encodeURIComponent(runId))).json().catch(()=>({}));
+          if (v && v.video_url) { video.src = v.video_url; video.style.display = 'block'; }
+        }
+      }
+    } catch(e){}
+  }
+})();
+</script>
+{% endraw %}
+{% endblock %}

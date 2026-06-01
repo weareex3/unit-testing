@@ -246,3 +246,85 @@ Return ONLY valid JSON:
 
     except Exception as exc:
         return {"approach": "wait_and_retry", "wait_before_ms": 2000, "notes": f"coach error: {exc}"}
+
+
+# ── Free-form agent ("describe what you want, Claude does it") ────────────────
+def get_agent_actions(screenshot_path: str, goal: str, history: list, preview: bool = True) -> dict | None:
+    """Autonomous agent step: given a plain-English GOAL, the current screenshot,
+    and what's been done so far, decide the next 1-3 browser actions. Returns
+    {"reasoning": str, "commands": str, "done": bool} or None on error.
+
+    This is the Testing Hub's blind agent — no script, Claude reasons from the
+    screen like it does in chat, using the strongest model.
+    """
+    key = os.getenv("ANTHROPIC_API_KEY")
+    if not key or not Path(screenshot_path).exists():
+        return None
+    notes = _load_global_notes()
+    notes_section = f"\n\nAccumulated SF navigation knowledge:\n{notes}" if notes else ""
+    hist = "\n".join(history[-12:]) if history else "(nothing yet — this is the first step)"
+    preview_rule = (
+        "\n- PREVIEW MODE: This is a dry run. Navigate and fill fields to demonstrate the task, "
+        "but NEVER click Save / Submit / Confirm / OK or anything that commits a change. When you "
+        "reach the point just before committing, set done=true instead of clicking it."
+        if preview else ""
+    )
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=key)
+        img = base64.standard_b64encode(Path(screenshot_path).read_bytes()).decode()
+        prompt = f"""You are an expert SAP SuccessFactors operator controlling a real browser (1280x720).
+
+YOUR GOAL (plain English from the user):
+  "{goal}"
+
+What you've done so far:
+{hist}
+{notes_section}
+
+Look at the screenshot — it is the CURRENT state of the browser right now. Decide the NEXT 1-3
+actions that move toward the goal. Think like you would when shown a screenshot in chat: identify
+what's on screen, then act.
+
+RULES:
+- Prefer stable text targets over coordinates: CLICK: <visible text>, FILL: <label> | <value>,
+  NAVIGATE: <Module>. Use CLICK_XY only as a last resort when there's no readable text.
+- For a search/result list, type the value, WAIT, then CLICK the matching result by its name.
+- Add WAIT: 1500 after anything that opens a menu/dialog or navigates.
+- Set done=true ONLY when the goal is fully achieved (or, in preview, when you've reached the
+  point just before the final commit).{preview_rule}
+
+Available commands (one per line in "commands"):
+  CLICK: text | CLICK_XY: x, y | TYPE: text | PRESS: Key | WAIT: ms | FILL: label | value
+  SHADOW_CLICK: text | NAVIGATE: Module | SELECT: option | JS: expression
+
+Reply with ONLY valid JSON:
+{{"reasoning": "<one sentence: what you see and what you'll do>",
+  "commands": "<command lines, newline-separated; empty if done>",
+  "done": <true|false>}}"""
+        msg = client.messages.create(
+            model="claude-opus-4-8",
+            max_tokens=900,
+            system=(
+                "You are a world-class SAP SuccessFactors UI automation expert. You read a screenshot "
+                "and know exactly how to navigate — module picker, proxy, Employee Central, Recruiting, "
+                "shadow-DOM popups. You drive step by step toward the user's stated goal."
+            ),
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img}},
+                {"type": "text", "text": prompt},
+            ]}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            raw = raw[4:] if raw.startswith("json") else raw
+        data = json.loads(raw.strip())
+        return {
+            "reasoning": str(data.get("reasoning", ""))[:240],
+            "commands": str(data.get("commands", "")),
+            "done": bool(data.get("done")),
+        }
+    except Exception as exc:
+        print(f"  [agent] error: {exc}")
+        return None

@@ -99,6 +99,8 @@ def run_scenario(
     unattended: bool = False,
     run_id_override: str | None = None,
     forced_library_task: str = "",
+    preview: bool = False,
+    preview_note: str = "",
 ) -> ScenarioResult:
     """Login to SF, run all (or first *max_steps*) steps, record video."""
     run_id = run_id_override or datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -218,7 +220,25 @@ def run_scenario(
                             + (f" | Data: {_s.test_data}" if _s.test_data and _s.test_data != "—" else "")
                             + f" | Expected: {_s.expected_result}"
                         )
+                    if preview:
+                        _ctx_lines.append("")
+                        if preview_note:
+                            _ctx_lines.append(f"Run context: {preview_note}")
+                        _ctx_lines.append(
+                            "PREVIEW MODE: This is a dry run. Navigate and fill fields to demonstrate "
+                            "the task, but NEVER click Save, Submit, Confirm, OK, or any button that "
+                            "commits/persists a change. Stop before the final commit."
+                        )
                     _scenario_ctx = "\n".join(_ctx_lines)
+
+                # Preview: skip any step that commits a change (save/submit) — demo only.
+                if preview and any(w in (step.action or "").lower() for w in ("save", "submit", "confirm and", "click 'save'", "create the new")):
+                    print(f"  [preview] skipping commit step {step.step_id}: {step.action[:60]}")
+                    step_result = StepResult(step_id=step.step_id, passed=True, error_message="[preview] commit step skipped")
+                    result.steps.append(step_result)
+                    if step_done_callback:
+                        step_done_callback(step.step_id, True, "[preview] commit step skipped", "")
+                    continue
 
                 # manual=True ("watch me"): every step handed to the human.
                 # no_guess=True (normal Run / Run All): replay ONLY steps we already
@@ -358,6 +378,7 @@ def run_scenario(
                         run_id=run_id,
                         error_message=step_result.error_message,
                         page=page,
+                        live_step=str(step_result.error_message or "").startswith("Human review required"),
                     )
                     if fix:
                         if fix.get("skip"):
@@ -595,6 +616,14 @@ def _run_step(page: Page, step, output_dir: str, feedback: str = "", use_feedbac
     pre_shot = os.path.join(output_dir, f"{step.step_id}_pre.png")
     try:
         page.screenshot(path=pre_shot, full_page=False)
+        if _agent_step_is_final_save(step.action):
+            return StepResult(
+                step_id=step.step_id,
+                passed=False,
+                error_message="Human review required before final Save/Submit",
+                duration_s=round(time.time() - t0, 2),
+                screenshot_path=pre_shot,
+            )
         vision_cmds = get_vision_commands(
             pre_shot,
             step.action,
@@ -604,6 +633,19 @@ def _run_step(page: Page, step, output_dir: str, feedback: str = "", use_feedbac
         )
         if vision_cmds:
             print(f"  [vision] {step.step_id}: executing vision commands")
+            if _agent_needs_human_save(vision_cmds):
+                shot = os.path.join(output_dir, f"{step.step_id}_needs_human_save.png")
+                try:
+                    page.screenshot(path=shot, full_page=False)
+                except Exception:
+                    shot = pre_shot
+                return StepResult(
+                    step_id=step.step_id,
+                    passed=False,
+                    error_message="Human review required before final Save/Submit",
+                    duration_s=round(time.time() - t0, 2),
+                    screenshot_path=shot,
+                )
             result = _run_direct_commands(page, step, output_dir, vision_cmds, t0)
             if result.passed:
                 # Verify the expected result is actually on screen — catch fake passes
@@ -671,10 +713,30 @@ def _run_step(page: Page, step, output_dir: str, feedback: str = "", use_feedbac
 
 
 _CMD_PREFIXES = ("CLICK:", "CLICK_XY:", "TYPE:", "PRESS:", "WAIT:", "FILL:", "SHADOW_CLICK:", "GOTO:", "NAVIGATE:", "SELECT:", "SELECT_OPTION:", "JS:")
+_HUMAN_SAVE_WORDS = ("save", "submit")
 
 
 def _has_direct_commands(feedback: str) -> bool:
     return any(line.strip().upper().startswith(_CMD_PREFIXES) for line in (feedback or "").splitlines())
+
+
+def _agent_needs_human_save(commands: str) -> bool:
+    """Agent-generated runs must stop before committing a change."""
+    for raw in (commands or "").splitlines():
+        line = raw.strip()
+        if not line or ":" not in line:
+            continue
+        cmd, _, arg = line.partition(":")
+        cmd = cmd.strip().upper()
+        words = re.findall(r"[a-z]+", arg.lower())
+        if cmd in ("CLICK", "SHADOW_CLICK") and any(word in words for word in _HUMAN_SAVE_WORDS):
+            return True
+    return False
+
+
+def _agent_step_is_final_save(step_action: str) -> bool:
+    text = (step_action or "").lower()
+    return bool(re.search(r"\b(save|submit)\b", text))
 
 
 def _run_direct_commands(page: Page, step, output_dir: str, feedback: str, t0: float) -> StepResult:
@@ -1401,3 +1463,79 @@ def _parse_kv(text: str) -> dict[str, str]:
             k, _, v = line.partition(":")
             out[k.strip()] = v.strip().strip("[]")
     return out
+
+
+def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None",
+                   run_id_override: str | None = None, step_done_callback=None,
+                   max_iters: int = 12) -> ScenarioResult:
+    """Free-form autonomous agent (Testing Hub): given a plain-English GOAL, log in
+    to SF and loop screenshot -> Claude decides next actions -> execute, until the
+    goal is done or we hit the iteration cap. No script, no saved commands. Records
+    video + per-iteration screenshots. preview=True => never commit a change."""
+    import time as _time
+    from types import SimpleNamespace
+    from engine.coach import get_agent_actions
+
+    run_id = run_id_override or datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    base = Path(runs_root) if isinstance(runs_root, (str, Path)) else Path("runs")
+    runs_dir = base / run_id
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    username = os.environ["SF_USERNAME"]
+    password = os.environ["SF_PASSWORD"]
+    sf_url = os.getenv("SF_URL", _DEFAULT_SF_URL)
+    result = ScenarioResult(scenario_id="agent", run_id=run_id, passed=False)
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True, args=[
+            "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"])
+        context = browser.new_context(
+            record_video_dir=str(runs_dir), record_video_size={"width": 1280, "height": 720},
+            viewport={"width": 1280, "height": 720})
+        page = context.new_page()
+        history: list[str] = []
+        try:
+            print(f"  [agent] goal: {goal}")
+            _login(page, sf_url, username, password)
+            page.wait_for_timeout(2000)
+            for i in range(1, max_iters + 1):
+                shot = str(runs_dir / f"agent-{i:02d}.png")
+                try:
+                    page.screenshot(path=shot, full_page=False)
+                except Exception:
+                    shot = ""
+                plan = get_agent_actions(shot, goal, history, preview=preview)
+                if not plan:
+                    if step_done_callback:
+                        step_done_callback(f"agent-{i:02d}", False, "Agent could not decide a next step", "")
+                    break
+                reasoning = plan.get("reasoning", "")
+                cmds = plan.get("commands", "")
+                done = plan.get("done")
+                print(f"  [agent {i}] {reasoning[:100]} | done={done}")
+                shot_url = f"/runs/{run_id}/{Path(shot).name}" if shot else ""
+                if step_done_callback:
+                    step_done_callback(f"agent-{i:02d}", True, reasoning, shot_url)
+                history.append(f"Step {i}: {reasoning} -> {cmds.strip()[:100]}")
+                result.steps.append(StepResult(step_id=f"agent-{i:02d}", passed=True,
+                                               screenshot_path=shot, error_message=reasoning[:200]))
+                if done or not cmds.strip():
+                    result.passed = bool(done)
+                    break
+                step_obj = SimpleNamespace(step_id=f"agent-{i:02d}", action=goal,
+                                           expected_result=goal, test_data="")
+                try:
+                    _run_direct_commands(page, step_obj, str(runs_dir), cmds, _time.time())
+                except Exception as exc:
+                    history.append(f"  (action error: {exc})")
+                page.wait_for_timeout(800)
+        except Exception as exc:
+            result.error = str(exc)
+            print(f"  [agent] fatal: {exc}")
+        finally:
+            try:
+                context.close()
+                browser.close()
+            except Exception:
+                pass
+    result.ended_at = datetime.utcnow()
+    return result

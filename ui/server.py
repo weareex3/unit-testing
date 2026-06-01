@@ -2620,6 +2620,73 @@ def batch_page(request: Request, script: str = ""):
     )
 
 
+@app.get("/testing-hub", response_class=HTMLResponse)
+def testing_hub(request: Request):
+    return templates.TemplateResponse(
+        request=request,
+        name="lab.html",
+        context={
+            "stats": _stats(),
+            "client_id": CLIENT_ID,
+            "current_user": _current_user(request),
+            "active": "lab",
+        },
+    )
+
+
+@app.post("/api/lab/run")
+async def api_lab_run(request: Request):
+    """Isolated free-form agent: take a plain-English goal and let Opus drive SF
+    in preview (no-save) mode. Does NOT touch scenarios, library, or saved data."""
+    from engine.runner import run_agent_goal
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    goal = str(body.get("goal", "")).strip()
+    if not goal:
+        return JSONResponse({"ok": False, "error": "Describe what to do first."}, status_code=400)
+    if _ACTIVE_RUNS.get("agent", {}).get("status") == "running":
+        return JSONResponse({"ok": False, "error": "An agent run is already in progress."}, status_code=409)
+    user = _current_user(request)
+    run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    _ACTIVE_RUNS["agent"] = {"status": "running", "run_id": run_id, "user": user, "goal": goal}
+    log_file = RUNS_DIR / "agent_last_run.json"
+    steps_log: list[dict] = []
+
+    def _write(status: str):
+        try:
+            log_file.write_text(json.dumps({"run_id": run_id, "status": status, "steps": steps_log}, indent=2))
+        except Exception:
+            pass
+
+    def _step_done(step_id, passed, error, screenshot_url):
+        steps_log.append({"step_id": step_id, "passed": passed, "error": error or "", "screenshot_url": screenshot_url or ""})
+        _write("running")
+
+    _write("running")
+
+    def _run():
+        try:
+            result = run_agent_goal(goal, preview=True, runs_root=RUNS_DIR, run_id_override=run_id,
+                                    step_done_callback=_step_done, max_iters=12)
+            _write("done")
+            _ACTIVE_RUNS["agent"] = {"status": "done", "run_id": run_id, "passed": result.passed, "user": user}
+        except Exception as exc:
+            _write("error")
+            _ACTIVE_RUNS["agent"] = {"status": "error", "run_id": run_id, "error": str(exc), "user": user}
+
+    threading.Thread(target=_run, daemon=True).start()
+    return JSONResponse({"ok": True, "run_id": run_id})
+
+
+@app.get("/api/lab/video/{run_id}")
+def api_lab_video(run_id: str):
+    run_dir = RUNS_DIR / run_id
+    videos = sorted(run_dir.glob("*.webm")) if run_dir.exists() else []
+    return JSONResponse({"ok": True, "video_url": f"/runs/{run_id}/{videos[0].name}" if videos else ""})
+
+
 @app.get("/api/match")
 def api_match(request: Request, script: str = ""):
     scenarios = _load_scenarios(script or None)
