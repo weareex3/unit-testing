@@ -274,13 +274,13 @@
       <div class="confidence-ring" id="preflight-ring" style="--pct:0"><span id="preflight-confidence">0%</span></div>
     </div>
     <div class="preflight-match">
-      <div style="font-size:12px;color:var(--muted);margin-bottom:3px;">Matched task</div>
+      <div style="font-size:12px;color:var(--muted);margin-bottom:3px;">Suggestion only — not applied unless you choose it below</div>
       <div id="preflight-task" style="font-size:16px;font-weight:800;color:var(--ink);">None yet</div>
       <div id="preflight-reason" style="font-size:12px;color:var(--muted);margin-top:5px;"></div>
     </div>
-    <label style="display:block;font-size:12px;font-weight:800;color:var(--ink);margin-bottom:6px;">Force a saved task</label>
+    <label style="display:block;font-size:12px;font-weight:800;color:var(--ink);margin-bottom:6px;">What should this run use?</label>
     <select id="preflight-force-task" class="input" style="margin-bottom:14px;">
-      <option value="">Use best match</option>
+      <option value="">Run this scenario's own saved steps (recommended)</option>
     </select>
     <div id="preflight-vars" style="display:none;margin:0 0 14px;"></div>
     <div id="preflight-steps" class="preflight-steps"></div>
@@ -983,16 +983,16 @@
     document.getElementById('preflight-task').textContent = matched || 'No saved task matched';
     document.getElementById('preflight-reason').textContent = data.reason || (matched ? '' : 'This will run fresh unless you force a saved task.');
     document.getElementById('preflight-summary').textContent = matched
-      ? `Matched to ${matched}. ${data.covered_count || 0} of ${data.total || 0} steps are known.`
-      : 'No confident match. You can run fresh or force a saved task.';
+      ? `This looks like your "${matched}" task (${data.covered_count || 0}/${data.total || 0} steps). It will run this scenario's OWN saved steps unless you choose otherwise below.`
+      : "Will run this scenario's own saved steps.";
 
     const select = document.getElementById('preflight-force-task');
     const tasks = data.library_tasks || [];
-    select.innerHTML = '<option value="">Use best match</option>' + tasks.map(t => `<option value="${_escapeHtml(t)}">${_escapeHtml(t)}</option>`).join('');
+    select.innerHTML = '<option value="">Run this scenario\'s own saved steps (recommended)</option>' + tasks.map(t => `<option value="${_escapeHtml(t)}">Force library task: ${_escapeHtml(t)}</option>`).join('');
     select.onchange = () => {
       document.getElementById('preflight-summary').textContent = select.value
-        ? `Forced task selected: ${select.value}`
-        : (matched ? `Matched to ${matched}. ${data.covered_count || 0} of ${data.total || 0} steps are known.` : 'No confident match. You can run fresh or force a saved task.');
+        ? `Will run the library task "${select.value}" instead of this scenario's own steps.`
+        : "Will run this scenario's own saved steps.";
       _renderPreflightVars(data);
     };
     _renderPreflightVars(data);
