@@ -739,12 +739,22 @@ def _agent_step_is_final_save(step_action: str) -> bool:
     return bool(re.search(r"\b(save|submit)\b", text))
 
 
+def _resolve_dynamic_tokens(text: str) -> str:
+    """Resolve run-time tokens. {{today}} -> current date as 'D Mon YYYY' (e.g. 2 Jun 2026)."""
+    import re as _re
+    d = datetime.now()
+    today = f"{d.day} {d.strftime('%b')} {d.year}"
+    # Accept one OR two braces ({today} or {{today}}) — model prompts are f-strings
+    # which can collapse {{ }} to single braces.
+    return _re.sub(r"\{{1,2}\s*today\s*\}{1,2}", today, text, flags=_re.IGNORECASE)
+
+
 def _run_direct_commands(page: Page, step, output_dir: str, feedback: str, t0: float) -> StepResult:
     """Execute a step using direct commands written in the feedback box."""
     current_cmd = ""
     try:
         for line in feedback.strip().splitlines():
-            line = line.strip()
+            line = _resolve_dynamic_tokens(line.strip())
             if not line or line.startswith("#"):
                 continue
             if ":" not in line:
@@ -1465,9 +1475,89 @@ def _parse_kv(text: str) -> dict[str, str]:
     return out
 
 
+_SOM_MARK_JS = r"""
+() => {
+  document.querySelectorAll('.__som_badge').forEach(e => e.remove());
+  const out = []; const seen = new Set(); let i = 0;
+  const W = window.innerWidth, H = window.innerHeight;
+  function lbl(el){
+    let t = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('alt'))) || '';
+    if (!t) t = (el.innerText || el.textContent || '').trim().replace(/\s+/g,' ').slice(0,45);
+    if (!t && el.tagName.toLowerCase() === 'input') t = (el.getAttribute('placeholder') || el.getAttribute('name') || 'field');
+    return t || el.tagName.toLowerCase();
+  }
+  function clickable(el){
+    const tag = el.tagName ? el.tagName.toLowerCase() : '';
+    if (['button','a','input','select','textarea'].includes(tag)) return true;
+    const role = el.getAttribute && el.getAttribute('role');
+    if (role && ['button','link','menuitem','tab','checkbox','option','switch'].includes(role)) return true;
+    if (el.hasAttribute && el.hasAttribute('onclick')) return true;
+    try { if (getComputedStyle(el).cursor === 'pointer') return true; } catch(e){}
+    return false;
+  }
+  function walk(root){
+    let els; try { els = root.querySelectorAll('*'); } catch(e){ return; }
+    for (const el of els){
+      if (el.shadowRoot) walk(el.shadowRoot);
+      if (i >= 70) continue;
+      if (!clickable(el)) continue;
+      let r; try { r = el.getBoundingClientRect(); } catch(e){ continue; }
+      if (r.width < 6 || r.height < 6) continue;
+      if (r.bottom < 0 || r.top > H || r.right < 0 || r.left > W) continue;
+      const cx = Math.round(r.left + r.width/2), cy = Math.round(r.top + r.height/2);
+      const key = cx + 'x' + cy; if (seen.has(key)) continue; seen.add(key);
+      i++;
+      out.push({i: i, x: cx, y: cy, label: lbl(el)});
+      const b = document.createElement('div'); b.className = '__som_badge'; b.textContent = i;
+      Object.assign(b.style, {position:'fixed', left:Math.max(0,r.left)+'px', top:Math.max(0,r.top)+'px',
+        zIndex:2147483647, background:'#e11d48', color:'#fff', font:'bold 11px sans-serif',
+        padding:'0 4px', borderRadius:'4px', pointerEvents:'none', lineHeight:'15px',
+        boxShadow:'0 0 0 1px #fff'});
+      document.body.appendChild(b);
+    }
+  }
+  walk(document.body);
+  return out;
+}
+"""
+
+
+def _mark_clickables(page) -> list:
+    """Set-of-marks: number every clickable element (incl. shadow DOM), draw badges,
+    return [{i, x, y, label}]. Lets the model pick 'click ③' instead of guessing pixels."""
+    try:
+        return page.evaluate(_SOM_MARK_JS) or []
+    except Exception as exc:
+        print(f"  [som] mark error: {exc}")
+        return []
+
+
+def _unmark(page) -> None:
+    try:
+        page.evaluate("() => document.querySelectorAll('.__som_badge').forEach(e => e.remove())")
+    except Exception:
+        pass
+
+
+def _resolve_marks(cmds: str, marks: list) -> str:
+    """Turn 'CLICK_MARK: N' into the real 'CLICK_XY: x, y' for marked element N."""
+    import re as _re
+    by_i = {int(m["i"]): m for m in marks if "i" in m}
+    out = []
+    for line in (cmds or "").splitlines():
+        mo = _re.match(r"\s*CLICK_MARK:\s*#?(\d+)", line, _re.I)
+        if mo:
+            mk = by_i.get(int(mo.group(1)))
+            out.append(f"CLICK_XY: {mk['x']}, {mk['y']}" if mk else line)
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None",
                    run_id_override: str | None = None, step_done_callback=None,
-                   max_iters: int = 12) -> ScenarioResult:
+                   max_iters: int = 12, check_stop=None, ask_user=None, confirm_step=None,
+                   confirm_done=None, grounding: bool = False) -> ScenarioResult:
     """Free-form autonomous agent (Testing Hub): given a plain-English GOAL, log in
     to SF and loop screenshot -> Claude decides next actions -> execute, until the
     goal is done or we hit the iteration cap. No script, no saved commands. Records
@@ -1484,6 +1574,7 @@ def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None
     password = os.environ["SF_PASSWORD"]
     sf_url = os.getenv("SF_URL", _DEFAULT_SF_URL)
     result = ScenarioResult(scenario_id="agent", run_id=run_id, passed=False)
+    executed_cmds: list[str] = []   # successful command lines, for Save-as-task
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, slow_mo=400, args=[
@@ -1498,12 +1589,24 @@ def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None
             _login(page, sf_url, username, password)
             page.wait_for_timeout(2000)
             for i in range(1, max_iters + 1):
+                if check_stop and check_stop():
+                    print("  [agent] stopped by user")
+                    result.error = "Stopped by user"
+                    if step_done_callback:
+                        step_done_callback(f"agent-{i:02d}", False, "Stopped by user", "")
+                    break
                 shot = str(runs_dir / f"agent-{i:02d}.png")
+                marks = []
                 try:
+                    if grounding:
+                        marks = _mark_clickables(page)   # number every clickable, draw badges
                     page.screenshot(path=shot, full_page=False)
+                    if grounding:
+                        _unmark(page)                    # remove badges so real clicks land
                 except Exception:
                     shot = ""
-                plan = get_agent_actions(shot, goal, history, preview=preview)
+                plan = get_agent_actions(shot, goal, history, preview=preview,
+                                         marks=(marks if grounding else None))
                 if not plan:
                     if step_done_callback:
                         step_done_callback(f"agent-{i:02d}", False, "Agent could not decide a next step", "")
@@ -1513,24 +1616,204 @@ def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None
                 done = plan.get("done")
                 print(f"  [agent {i}] {reasoning[:100]} | done={done}")
                 shot_url = f"/runs/{run_id}/{Path(shot).name}" if shot else ""
+                ask_q = plan.get("ask")
+                if ask_q and ask_user:
+                    print(f"  [agent {i}] asking user: {ask_q}")
+                    if step_done_callback:
+                        step_done_callback(f"agent-{i:02d}", True, f"❓ {ask_q}", shot_url)
+                    result.steps.append(StepResult(step_id=f"agent-{i:02d}", passed=True,
+                                                   screenshot_path=shot, error_message=f"Asked: {ask_q}"))
+                    answer = ask_user(ask_q, shot_url)
+                    if not answer:
+                        result.error = "Stopped by user"
+                        break
+                    history.append(f"Step {i}: needed a value — asked '{ask_q}', "
+                                   f"user answered: '{answer}'")
+                    continue
+                # CONFIRM-EACH-MOVE training mode: surface the proposed move and wait
+                # for the user to Confirm, Redirect (plain English), or Stop.
+                if confirm_step and cmds.strip() and not done:
+                    decision = confirm_step(reasoning, cmds, shot_url) or {}
+                    act = (decision.get("action") or "confirm").lower()
+                    if act == "stop":
+                        result.error = "Stopped by user"
+                        break
+                    if act == "redirect":
+                        red = str(decision.get("text", "")).strip()
+                        history.append(f"Step {i}: I proposed '{cmds.strip()[:80]}' but the user "
+                                       f"redirected: {red}")
+                        if step_done_callback:
+                            step_done_callback(f"agent-{i:02d}", True,
+                                               f"Proposed: {reasoning} — you said: {red}", shot_url)
+                        continue
                 if step_done_callback:
                     step_done_callback(f"agent-{i:02d}", True, reasoning, shot_url)
                 history.append(f"Step {i}: {reasoning} -> {cmds.strip()[:100]}")
                 result.steps.append(StepResult(step_id=f"agent-{i:02d}", passed=True,
                                                screenshot_path=shot, error_message=reasoning[:200]))
-                if done or not cmds.strip():
-                    result.passed = bool(done)
+                if done:
+                    # Don't assume completion — check with the user first.
+                    if confirm_done:
+                        cd = confirm_done() or {}
+                        if cd.get("action") == "continue":
+                            extra = str(cd.get("text", "")).strip()
+                            history.append(f"Step {i}: I thought the task was done, but the user said "
+                                           f"keep going{(': ' + extra) if extra else ''}.")
+                            if step_done_callback:
+                                step_done_callback(f"agent-{i:02d}", True,
+                                                   f"You: not done yet{(' — ' + extra) if extra else ''}", shot_url)
+                            continue
+                    result.passed = True
+                    break
+                if not cmds.strip():
                     break
                 step_obj = SimpleNamespace(step_id=f"agent-{i:02d}", action=goal,
                                            expected_result=goal, test_data="")
+                exec_cmds = _resolve_marks(cmds, marks) if grounding else cmds
                 try:
-                    _run_direct_commands(page, step_obj, str(runs_dir), cmds, _time.time())
+                    _run_direct_commands(page, step_obj, str(runs_dir), exec_cmds, _time.time())
+                    for _ln in exec_cmds.splitlines():
+                        if _ln.strip():
+                            executed_cmds.append(_ln.strip())
                 except Exception as exc:
                     history.append(f"  (action error: {exc})")
                 page.wait_for_timeout(800)
         except Exception as exc:
             result.error = str(exc)
             print(f"  [agent] fatal: {exc}")
+        finally:
+            try:
+                context.close()
+                browser.close()
+            except Exception:
+                pass
+    result.agent_commands = executed_cmds
+    result.ended_at = datetime.utcnow()
+    return result
+
+
+def run_plan(plan, answers=None, preview=True, runs_root="runs", run_id_override=None,
+             step_done_callback=None, ask_user=None, check_stop=None,
+             is_paused=None, take_instruction=None):
+    """Execute a user-approved PLAN (list of {desc, cmd}) deterministically. If a
+    step's command fails (target not found), make ONE vision attempt to self-correct
+    that single step, then continue. Records a full video. preview=True => no commit."""
+    import time as _time, re as _re
+    from types import SimpleNamespace
+    from engine.coach import get_agent_actions
+
+    run_id = run_id_override or datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    base = Path(runs_root) if isinstance(runs_root, (str, Path)) else Path("runs")
+    runs_dir = base / run_id
+    runs_dir.mkdir(parents=True, exist_ok=True)
+    username = os.environ["SF_USERNAME"]
+    password = os.environ["SF_PASSWORD"]
+    sf_url = os.getenv("SF_URL", _DEFAULT_SF_URL)
+    answers = dict(answers or {})
+    result = ScenarioResult(scenario_id="plan", run_id=run_id, passed=False)
+
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=True, slow_mo=150, args=[
+            "--disable-gpu", "--no-sandbox", "--disable-dev-shm-usage", "--disable-setuid-sandbox"])
+        context = browser.new_context(
+            record_video_dir=str(runs_dir), record_video_size={"width": 1280, "height": 720},
+            viewport={"width": 1280, "height": 720})
+        page = context.new_page()
+        try:
+            _login(page, sf_url, username, password)
+            page.wait_for_timeout(2000)
+            for i, st in enumerate(plan, 1):
+                if check_stop and check_stop():
+                    result.error = "Stopped by user"
+                    break
+                # Pause gate: user can hold the run and inject live instructions
+                # (executed via vision) before the next planned step runs.
+                _gi = 0
+                while is_paused and is_paused():
+                    if check_stop and check_stop():
+                        break
+                    instr = take_instruction() if take_instruction else None
+                    if instr:
+                        _gi += 1
+                        gshot = str(runs_dir / f"plan-{i:02d}-int{_gi}.png")
+                        try:
+                            page.screenshot(path=gshot, full_page=False)
+                        except Exception:
+                            pass
+                        gobj = SimpleNamespace(step_id=f"plan-{i:02d}-int{_gi}", action=instr,
+                                               expected_result=instr, test_data="")
+                        note = f"You: {instr}"
+                        act = get_agent_actions(gshot, instr, [], preview=preview)
+                        if act and act.get("commands", "").strip():
+                            try:
+                                _run_direct_commands(page, gobj, str(runs_dir), act["commands"], _time.time())
+                                note = f"You: {instr} — done"
+                            except Exception as e:
+                                note = f"You: {instr} — failed: {str(e)[:50]}"
+                        try:
+                            page.screenshot(path=gshot, full_page=False)
+                        except Exception:
+                            pass
+                        if step_done_callback:
+                            step_done_callback(f"plan-{i:02d}-int{_gi}", True, note, f"/runs/{run_id}/{Path(gshot).name}")
+                    else:
+                        _time.sleep(0.5)
+                if check_stop and check_stop():
+                    result.error = "Stopped by user"
+                    break
+                desc = (st.get("desc") or st.get("cmd") or "").strip()
+                cmd = st.get("cmd", "")
+                cmd2 = substitute(cmd, answers) if answers else cmd
+                # Any placeholder still unfilled? ask the user live, once per variable.
+                for var in _re.findall(r"{{\s*([\w]+)\s*}}", cmd2):
+                    if ask_user:
+                        ashot = str(runs_dir / f"plan-{i:02d}-ask.png")
+                        try:
+                            page.screenshot(path=ashot, full_page=False)
+                            ashot_url = f"/runs/{run_id}/{Path(ashot).name}"
+                        except Exception:
+                            ashot_url = ""
+                        ans = ask_user(f"What is the value for '{var.replace('_', ' ')}'?", ashot_url)
+                        if ans:
+                            answers[var] = ans
+                            cmd2 = _re.sub(r"{{\s*" + _re.escape(var) + r"\s*}}", ans, cmd2)
+                shot = str(runs_dir / f"plan-{i:02d}.png")
+                step_obj = SimpleNamespace(step_id=f"plan-{i:02d}", action=desc, expected_result=desc, test_data="")
+                ok, note = True, desc
+                try:
+                    sr = _run_direct_commands(page, step_obj, str(runs_dir), cmd2, _time.time())
+                    if not sr.passed:
+                        raise RuntimeError(sr.error_message or "step failed")
+                except Exception as exc:
+                    # Smart fallback: one vision attempt for THIS step only.
+                    print(f"  [plan {i}] '{cmd2[:50]}' missed ({str(exc)[:50]}) — vision fallback")
+                    try:
+                        page.screenshot(path=shot, full_page=False)
+                    except Exception:
+                        pass
+                    act = get_agent_actions(shot, desc, [], preview=preview)
+                    if act and act.get("commands", "").strip():
+                        try:
+                            _run_direct_commands(page, step_obj, str(runs_dir), act["commands"], _time.time())
+                            note = f"{desc} — recovered with vision"
+                        except Exception as e2:
+                            ok, note = False, f"{desc} — failed: {str(e2)[:60]}"
+                    else:
+                        ok, note = False, f"{desc} — failed: {str(exc)[:60]}"
+                try:
+                    page.screenshot(path=shot, full_page=False)
+                except Exception:
+                    pass
+                shot_url = f"/runs/{run_id}/{Path(shot).name}"
+                if step_done_callback:
+                    step_done_callback(f"plan-{i:02d}", ok, note, shot_url)
+                result.steps.append(StepResult(step_id=f"plan-{i:02d}", passed=ok,
+                                               screenshot_path=shot, error_message=note[:200]))
+                page.wait_for_timeout(600)
+            result.passed = bool(result.steps) and all(s.passed for s in result.steps)
+        except Exception as exc:
+            result.error = str(exc)
+            print(f"  [plan] fatal: {exc}")
         finally:
             try:
                 context.close()

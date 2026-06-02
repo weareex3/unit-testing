@@ -183,7 +183,8 @@
           <button onclick="openLibModal()" class="btn btn-ghost" style="font-size:12px;border-color:rgba(0,113,227,0.3);color:#0050a0;background:#e8f1fb;">+ Task Library</button>
           <button onclick="unapproveRun()" class="btn btn-danger" style="font-size:12px;">Mark Wrong</button>
           {% else %}
-          <button onclick="approveRun()" class="btn btn-primary" style="flex:1;justify-content:center;">Mark as Correct</button>
+          <button onclick="approveVideoAndSaveTask()" class="btn btn-primary" style="flex:1;justify-content:center;">Approve video + save task</button>
+          <button onclick="approveRun()" class="btn btn-ghost" style="font-size:12px;">Correct only</button>
           <button onclick="unapproveRun()" class="btn btn-ghost" style="font-size:12px;">Incorrect</button>
           {% endif %}
         </div>
@@ -214,8 +215,14 @@
             </div>
             <button onclick="clearDots()" style="font-size:10px;color:#aeaeb2;background:none;border:none;cursor:pointer;margin-top:3px;font-family:inherit;">Clear clicks</button>
           </div>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:6px;">
+            <span style="font-size:10px;color:#aeaeb2;">Insert placeholder:</span>
+            <button type="button" onclick="insertPlaceholder('target_employee_name')" class="ph-chip">&#123;&#123;target_employee_name&#125;&#125;</button>
+            <button type="button" onclick="insertCustomPlaceholder()" class="ph-chip">+ Custom…</button>
+          </div>
           <textarea id="feedback-text" rows="3" class="input" style="font-family:monospace;font-size:11px;resize:none;"
-                    placeholder="CLICK_XY: 500, 350&#10;TYPE: value&#10;WAIT: 1000"></textarea>
+                    placeholder="CLICK: Proxy Now&#10;TYPE: &#123;&#123;target_employee_name&#125;&#125;&#10;WAIT: 1000"></textarea>
+          <p style="font-size:10px;color:#aeaeb2;margin:5px 0 0;">A placeholder like &#123;&#123;target_employee_name&#125;&#125; is filled in at run time — you'll be asked for the value — instead of being saved as a fixed name.</p>
           <button onclick="saveAndRetry()" id="retry-btn" class="btn btn-primary" style="margin-top:8px;width:100%;justify-content:center;font-size:12px;">Save fix and retry</button>
           <button onclick="sendFeedback()" id="send-btn" class="btn btn-ghost" style="margin-top:5px;width:100%;justify-content:center;font-size:12px;">Save Note Only</button>
           <p id="send-status" class="hidden" style="margin-top:6px;font-size:12px;text-align:center;color:#34c759;font-weight:600;"></p>
@@ -223,6 +230,31 @@
         </div>
       </div>
     </div>
+    <style>
+      .ph-chip { font-size:10px; font-family:monospace; color:#0071e3; background:rgba(0,113,227,0.08);
+        border:1px solid rgba(0,113,227,0.25); border-radius:999px; padding:3px 9px; cursor:pointer; }
+      .ph-chip:hover { background:rgba(0,113,227,0.16); }
+    </style>
+    <script>
+      // Insert a placeholder token at the cursor in the step-training command box.
+      // Braces are split ('{'+'{') so Jinja doesn't treat them as a template expression.
+      function insertPlaceholder(name){
+        const ta = document.getElementById('feedback-text');
+        if (!ta) return;
+        const ph = '{' + '{' + name + '}' + '}';
+        const s = (ta.selectionStart != null) ? ta.selectionStart : ta.value.length;
+        const e = (ta.selectionEnd != null) ? ta.selectionEnd : ta.value.length;
+        ta.value = ta.value.slice(0, s) + ph + ta.value.slice(e);
+        ta.focus();
+        const pos = s + ph.length;
+        ta.setSelectionRange(pos, pos);
+      }
+      function insertCustomPlaceholder(){
+        let name = (window.prompt('Placeholder name (letters, numbers, underscores):', 'target_employee_name') || '').trim();
+        name = name.replace(/[^a-zA-Z0-9_]/g, '_');
+        if (name) insertPlaceholder(name);
+      }
+    </script>
     {% endif %}
 
     <!-- Step list -->
@@ -875,6 +907,23 @@
     const res = await fetch(`/api/scenario/${SCENARIO_ID}/approve`, { method: 'POST' });
     if (res.ok) window.location.reload();
   }
+  async function approveVideoAndSaveTask() {
+    const taskName = prompt('Save this reviewed run as which library task?', {{ scenario.name | tojson }});
+    if (taskName === null) return;
+    const note = prompt('Optional note for Claude to recognise this task later:', 'Approved after reviewing the recorded run video.');
+    const res = await fetch(`/api/scenario/${SCENARIO_ID}/approve-library`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({task_name: taskName.trim(), note: (note || '').trim()}),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.ok && data.ok) {
+      alert(`Saved "${data.task_name}" to the Task Library (${data.steps_saved} steps).`);
+      window.location.reload();
+    } else {
+      alert(data.error || 'Could not save this task yet.');
+    }
+  }
   async function unapproveRun() {
     const res = await fetch(`/api/scenario/${SCENARIO_ID}/unapprove`, { method: 'POST' });
     if (res.ok) window.location.reload();
@@ -1349,6 +1398,7 @@
 
     const img = document.getElementById('lc-img');
     const wrap = document.getElementById('lc-img-wrap');
+    const spinner = document.getElementById('lc-spinner');
 
     function _recordCmd(cmd, label) {
       recorded.push({cmd, label});
@@ -1362,7 +1412,6 @@
     }
 
     function _refreshShot() {
-      const spinner = document.getElementById('lc-spinner');
       fetch(`/api/live/${SCENARIO_ID}/screenshot?t=${Date.now()}`)
         .then(r => { if (!r.ok) throw new Error(`${r.status}`); return r.blob(); })
         .then(blob => { img.src = URL.createObjectURL(blob); if (spinner) spinner.style.display = 'none'; })
@@ -1506,6 +1555,27 @@
       document.body.removeChild(overlay);
     };
   };
+
+  (function _openLiveFromBatchLink() {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('openLive') !== '1') return;
+    let tries = 0;
+    const timer = setInterval(async () => {
+      tries += 1;
+      try {
+        const d = await (await fetch(`/api/run/${SCENARIO_ID}/status`)).json();
+        if (d.status === 'paused') {
+          clearInterval(timer);
+          _currentPauseState = d;
+          window.openLiveControl();
+        } else if (['done', 'error', 'idle'].includes(d.status) || tries > 30) {
+          clearInterval(timer);
+        }
+      } catch(e) {
+        if (tries > 30) clearInterval(timer);
+      }
+    }, 1000);
+  })();
 
   document.querySelectorAll('[data-step]').forEach(card => {
     const stepId = card.dataset.step;

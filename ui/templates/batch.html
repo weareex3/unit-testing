@@ -52,6 +52,16 @@
   .status-link { display:grid; gap:4px; }
   .video-link { color:#dfc27b; font-size:12px; font-weight:800; }
   .row-time { color:rgba(248,244,234,.54); font-size:11px; }
+  .tl { display:inline-block; width:11px; height:11px; border-radius:50%; margin-right:8px; vertical-align:middle; }
+  .tl-green { background:#1f9d5a; animation:tlflash 1.5s infinite; }
+  .tl-amber { background:#dfc27b; }
+  .tl-red { background:#c9493d; }
+  @keyframes tlflash { 0%{box-shadow:0 0 0 0 rgba(31,157,90,.55);} 70%{box-shadow:0 0 0 9px rgba(31,157,90,0);} 100%{box-shadow:0 0 0 0 rgba(31,157,90,0);} }
+  .mode-pick { margin-top:8px; display:flex; gap:8px; flex-wrap:wrap; }
+  .mode-pick label { font-size:11px; font-weight:800; padding:4px 10px; border-radius:999px; border:1px solid rgba(255,255,255,.16); color:rgba(248,244,234,.66); cursor:pointer; display:inline-flex; align-items:center; gap:5px; }
+  .mode-pick label.on { background:rgba(223,194,123,.18); border-color:rgba(223,194,123,.55); color:#f4d88a; }
+  .mode-pick label.disabled { opacity:.4; cursor:not-allowed; }
+  .mode-pick input { accent-color:#dfc27b; margin:0; }
   @media (max-width:920px) {
     .launch-card { grid-template-columns:1fr; }
     .run-row { grid-template-columns:38px minmax(0,1fr); }
@@ -67,7 +77,7 @@
         <a href="/?script={{ script|urlencode }}" style="color:rgba(248,244,234,.62);font-size:12px;font-weight:800;">Back to script</a>
         <div class="batch-kicker" style="margin-top:18px;">Run all command centre</div>
         <h1 class="batch-title">{{ selected_name }}</h1>
-        <p class="batch-copy">Runs the selected script only, one complete scenario at a time. Shared opening steps are ignored unless the whole scenario matches a saved task.</p>
+        <p class="batch-copy">Runs the selected script one complete scenario at a time. Saved tasks replay first; unknown steps are attempted by the agent, then handed to you for training or final save.</p>
         <div id="signal-marquee" class="signal-marquee">
           <span class="signal">Batch idle</span>
           <span class="signal">Awaiting launch</span>
@@ -100,15 +110,117 @@
   </div>
 </div>
 
+<div id="agent-watch" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(8,7,6,.82);backdrop-filter:blur(6px);">
+  <div class="glass" style="max-width:900px;margin:14px auto;padding:0;color:#f8f4ea;display:flex;flex-direction:column;max-height:95vh;">
+    <!-- Fixed header: title + live screen + controls -->
+    <div style="padding:16px 20px 12px;flex:0 0 auto;border-bottom:1px solid rgba(255,255,255,.08);">
+      <div class="batch-kicker">Claude Opus · live</div>
+      <h3 id="aw-title" style="font-size:19px;margin:4px 0 2px;"></h3>
+      <p id="aw-sub" style="color:rgba(248,244,234,.62);font-size:12px;margin:0 0 10px;"></p>
+      <a id="aw-live-link" href="#" target="_blank" style="display:none;">
+        <img id="aw-live-img" title="Click to open full size" style="width:100%;max-height:46vh;object-fit:contain;border-radius:10px;border:1px solid rgba(255,255,255,.14);background:#0b0a08;display:block;cursor:zoom-in;" />
+      </a>
+      <div id="aw-control" style="display:none;gap:8px;margin-top:10px;flex-wrap:wrap;align-items:center;">
+        <button id="aw-pause" class="btn-launch" type="button" style="background:rgba(255,255,255,.14);color:#fff;box-shadow:none;">⏸ Pause</button>
+        <button id="aw-ctl-stop" class="btn-launch" type="button" style="background:rgba(201,73,61,.85);color:#fff;box-shadow:none;">■ Stop</button>
+        <input id="aw-instruct" class="dark-input" placeholder="Pause, then tell Claude what to do…" style="flex:1;min-width:200px;" disabled>
+        <button id="aw-instruct-send" class="btn-launch" type="button" disabled>Send</button>
+      </div>
+    </div>
+    <!-- Scrolling body: plan editor / step log / review -->
+    <div style="padding:14px 20px 18px;overflow:auto;flex:1 1 auto;min-height:0;">
+      <div id="aw-plan" style="display:none;">
+        <div style="color:rgba(248,244,234,.74);font-size:13px;margin-bottom:10px;">Here's how Claude plans to do it. If it's wrong, just <strong>tell it in plain English</strong> — e.g. <em>"no, click the avatar top-right, then search for People Profile"</em> — and it'll redraw. Run it when it looks right.</div>
+        <ol id="aw-plan-steps" style="margin:0 0 12px;padding-left:20px;font-size:13px;line-height:1.65;color:rgba(248,244,234,.92);"></ol>
+        <div id="aw-plan-chat" style="display:flex;flex-direction:column;gap:6px;margin-bottom:10px;"></div>
+        <div style="display:flex;gap:8px;margin-bottom:10px;">
+          <input id="aw-plan-msg" class="dark-input" placeholder="Tell Claude how to change the plan…" style="flex:1;">
+          <button id="aw-plan-send" class="btn-launch" type="button" style="background:rgba(255,255,255,.14);color:#fff;box-shadow:none;">Send</button>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button id="aw-plan-run" class="btn-launch" type="button">Looks right — run it</button>
+          <button id="aw-plan-skip" class="btn-launch" type="button" style="background:rgba(255,255,255,.12);color:#fff;box-shadow:none;">Skip this task</button>
+        </div>
+      </div>
+      <div id="aw-choice" style="display:none;">
+        <div style="color:rgba(248,244,234,.85);font-size:14px;margin-bottom:4px;">This task isn't saved yet.</div>
+        <div style="color:rgba(248,244,234,.6);font-size:12px;margin-bottom:14px;">How should Claude handle it? Whatever you pick, you can save it after — so next time it runs itself.</div>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <button id="aw-choice-attempt" class="btn-launch" type="button" style="text-align:left;padding:13px 16px;">
+            <div style="font-size:14px;">Let Claude attempt it <span id="aw-rec-attempt" style="display:none;font-size:10px;background:#1f9d5a;color:#fff;padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:middle;">Recommended</span></div>
+            <div style="font-size:11px;font-weight:600;opacity:.72;margin-top:3px;">It drafts a plan and runs — you watch, and can pause or guide if it strays.</div>
+          </button>
+          <button id="aw-choice-guided" class="btn-launch" type="button" style="text-align:left;padding:13px 16px;background:rgba(255,255,255,.14);color:#fff;box-shadow:none;">
+            <div style="font-size:14px;">Guide me step-by-step <span id="aw-rec-guided" style="display:none;font-size:10px;background:#1f9d5a;color:#fff;padding:1px 7px;border-radius:999px;margin-left:6px;vertical-align:middle;">Recommended</span></div>
+            <div style="font-size:11px;font-weight:600;opacity:.72;margin-top:3px;">Claude proposes each move; you confirm or correct it before anything happens.</div>
+          </button>
+          <button id="aw-choice-skip" type="button" style="background:none;border:0;color:rgba(248,244,234,.5);font-size:12px;cursor:pointer;padding:6px;">Skip this task</button>
+        </div>
+      </div>
+
+      <div id="aw-confirm" style="display:none;">
+        <div style="font-size:11px;font-weight:850;color:#a9cbff;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Claude wants to do this — your call</div>
+        <div id="aw-cf-reason" style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px;"></div>
+        <div id="aw-cf-cmd" style="font-family:monospace;font-size:11px;color:rgba(248,244,234,.7);background:rgba(0,0,0,.25);border-radius:8px;padding:8px 10px;margin-bottom:12px;white-space:pre-wrap;"></div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button id="aw-cf-yes" class="btn-launch" type="button">✓ Confirm &amp; do it</button>
+          <input id="aw-cf-redirect" class="dark-input" placeholder="…or tell it a better idea" style="flex:1;min-width:180px;">
+          <button id="aw-cf-send" class="btn-launch" type="button" style="background:rgba(255,255,255,.14);color:#fff;box-shadow:none;">Redirect</button>
+          <button id="aw-cf-stop" class="btn-launch" type="button" style="background:rgba(201,73,61,.85);color:#fff;box-shadow:none;">Stop</button>
+        </div>
+      </div>
+
+      <div id="aw-done" style="display:none;">
+        <div style="font-size:14px;font-weight:600;color:#fff;margin-bottom:8px;">Claude thinks it's finished — did that complete the task?</div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button id="aw-done-yes" class="btn-launch" type="button">✓ Yes, finish &amp; review</button>
+          <input id="aw-done-text" class="dark-input" placeholder="No — tell it what's still left" style="flex:1;min-width:180px;">
+          <button id="aw-done-continue" class="btn-launch" type="button" style="background:rgba(255,255,255,.14);color:#fff;box-shadow:none;">Keep going</button>
+        </div>
+      </div>
+
+      <div id="aw-steps" style="display:flex;flex-direction:column;gap:5px;"></div>
+      <video id="aw-video" controls style="display:none;width:100%;border-radius:12px;background:#000;margin-top:12px;"></video>
+      <div id="aw-ask" style="display:none;padding:14px;border-radius:12px;border:2px solid #d97706;background:rgba(217,119,6,.14);margin-top:12px;">
+        <div id="aw-ask-q" style="font-weight:800;color:#ffcf9e;margin-bottom:10px;"></div>
+        <div style="display:flex;gap:8px;">
+          <input id="aw-ask-input" class="dark-input" placeholder="Type your answer…" style="flex:1;">
+          <button id="aw-ask-send" class="btn-launch" type="button">Send</button>
+        </div>
+      </div>
+      <div id="aw-review" style="display:none;margin-top:12px;">
+        <div style="color:rgba(248,244,234,.74);font-size:13px;margin-bottom:10px;">Claude finished this task. Watch it back, then save it to the library or skip — the run continues either way.</div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input id="aw-task-name" class="dark-input" placeholder="Task name to save" style="flex:1;min-width:200px;">
+          <button id="aw-save" class="btn-launch" type="button">Save to library &amp; continue</button>
+          <button id="aw-skip" class="btn-launch" type="button" style="background:rgba(255,255,255,.12);color:#fff;box-shadow:none;">Skip &amp; continue</button>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
 <script>
 const SCRIPT_KEY = {{ script|tojson }};
+let awSid = null, awDecisionSent = false, awAnswerSent = false, awStepCount = -1;
+let awPlanLoaded = false, awPlanSent = false, awPaused = false, awLiveSrc = '';
+let awChoiceSent = false, awConfirmSent = false, awDoneSent = false;
 let plan = null;
 let batchId = null;
 let pollTimer = null;
 let pollBusy = false;
 const planByScenario = {};
+const runModes = {};     // scenario_id -> 'library' | 'opus'
+const runLibTask = {};   // scenario_id -> chosen library task name (manual match override)
+let libraryTasks = [];   // all saved task names, for the source picker
 
 function esc(v){ return String(v || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+// Confidence -> traffic light (>=80 green/saved, 20-79 amber/partial, <20 red/unknown)
+function lightClass(conf){ return conf >= 80 ? 'green' : (conf >= 20 ? 'amber' : 'red'); }
+function lightTitle(conf){ return conf >= 80 ? 'Saved — will replay' : (conf >= 20 ? 'Partial match' : 'Unknown — under 20% confident'); }
+// Smart default: green -> library replay; amber/red (or no match) -> Claude Opus
+function defaultMode(item){ return ((item.confidence || 0) >= 80 && item.matched_task) ? 'library' : 'opus'; }
 
 function statusFromItem(item) {
   const raw = (item.status || 'queued').toLowerCase();
@@ -150,19 +262,42 @@ function renderRows(items) {
     const confidence = Number.isFinite(item.confidence) ? item.confidence : (planByScenario[item.scenario_id]?.confidence || 0);
     const blocker = item.error || item.paused_step || item.current_step || planByScenario[item.scenario_id]?.reason || '';
     const detail = blocker ? esc(blocker) : 'No blockers reported.';
-    const video = item.video_url ? `<a class="video-link" href="${esc(item.video_url)}" target="_blank">Video ready</a>` : (status === 'paused' || status === 'failed' || status === 'needs_training' ? `<a class="video-link" href="/scenario/${encodeURIComponent(item.scenario_id)}?script=${encodeURIComponent(SCRIPT_KEY)}">Train step</a>` : '<span class="video-link" style="opacity:.35;">Waiting</span>');
+    const trainUrl = `/scenario/${encodeURIComponent(item.scenario_id)}?script=${encodeURIComponent(SCRIPT_KEY)}&openLive=1`;
+    const trained = item.pending_library_review ? ' · review video to save' : (item.trained_to_library ? ' · saved to library' : '');
+    const video = item.video_url ? `<a class="video-link" href="${esc(item.video_url)}" target="_blank">Video ready</a>` : (status === 'paused' || status === 'failed' || status === 'needs_training' ? `<a class="video-link" href="${trainUrl}">Train live</a>` : '<span class="video-link" style="opacity:.35;">Waiting</span>');
     const rowTime = `<div class="row-time">Elapsed ${mmss(item.started_at, item.ended_at)}</div>`;
+    const lc = lightClass(confidence);
+    const light = `<span class="tl tl-${lc}" title="${esc(lightTitle(confidence))}"></span>`;
+    const preflight = !batchId;   // show the mode picker only before launch
+    const mode = runModes[item.scenario_id] || defaultMode(item);
+    const chosenTask = runLibTask[item.scenario_id] || item.matched_task || '';
+    const libOpts = (chosenTask ? '' : '<option value="">Pick a saved task…</option>')
+      + libraryTasks.map(n => `<option value="${esc(n)}" ${n===chosenTask?'selected':''}>${esc(n)}</option>`).join('');
+    const libSelect = (preflight && mode === 'library') ? `
+          <select class="dark-input lib-src" name="lib-${esc(item.scenario_id)}" style="margin-top:8px;min-height:34px;max-width:300px;font-size:12px;padding:6px 10px;">
+            ${libOpts}
+          </select>` : '';
+    const modePick = preflight ? `
+        <div class="mode-pick" data-sid="${esc(item.scenario_id)}">
+          <label class="${mode==='library'?'on':''}">
+            <input type="radio" name="mode-${esc(item.scenario_id)}" value="library" ${mode==='library'?'checked':''}>
+            Library${item.matched_task ? '' : ' (manual)'}</label>
+          <label class="${mode==='opus'?'on':''}">
+            <input type="radio" name="mode-${esc(item.scenario_id)}" value="opus" ${mode==='opus'?'checked':''}>
+            Claude Opus</label>
+        </div>${libSelect}` : '';
     return `<div class="run-row ${esc(status)}">
       <div class="orb">${idx + 1}</div>
       <div>
-        <div class="run-name">${esc(item.name)}</div>
+        <div class="run-name">${light}${esc(item.name)}</div>
         <div class="run-meta">${esc(item.scenario_id)} · ${esc(item.role || '')} · ${total} steps${item.matched_task ? ' · memory: '+esc(item.matched_task) : ''} · confidence ${esc(confidence)}%</div>
         <div class="run-detail">${detail}</div>
+        ${modePick}
       </div>
       <span class="pill">${esc(status.replace('_',' '))}</span>
       <div>
         <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div class="progress-label">${done}/${total} steps passed</div>
+        <div class="progress-label">${done}/${total} steps passed${trained}</div>
       </div>
       <div class="status-link">${video}${rowTime}</div>
     </div>`;
@@ -189,8 +324,16 @@ async function loadPlan() {
   }
   const matched = plan.items.filter(i => i.matched_task).length;
   document.getElementById('plan-title').textContent = `${matched} of ${plan.total} scenarios have memory`;
-  document.getElementById('plan-copy').textContent = 'Add any reusable values once, then launch the whole script.';
-  (plan.items || []).forEach(item => { planByScenario[item.scenario_id] = item; });
+  document.getElementById('plan-copy').innerHTML = 'Each task shows a light — <strong style="color:#9ff0c5;">green = saved</strong>, <strong style="color:#f4d88a;">amber = partial</strong>, <strong style="color:#ffb0a9;">red = under 20%</strong>. Pick <strong>Library</strong> (replay) or <strong>Claude Opus</strong> per task. Green defaults to Library; amber/red to Opus.';
+  try {
+    const lib = await (await fetch('/api/library')).json();
+    libraryTasks = Object.keys(lib || {}).filter(k => (lib[k] && lib[k].steps));
+  } catch (e) { libraryTasks = []; }
+  (plan.items || []).forEach(item => {
+    planByScenario[item.scenario_id] = item;
+    if (!(item.scenario_id in runModes)) runModes[item.scenario_id] = defaultMode(item);
+    if (!(item.scenario_id in runLibTask) && item.matched_task) runLibTask[item.scenario_id] = item.matched_task;
+  });
   document.getElementById('var-box').innerHTML = (plan.variables || []).map(v => `
     <div>
       <label>${esc(v.label)}</label>
@@ -213,7 +356,8 @@ async function startBatch() {
   const res = await fetch('/api/batch/start', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({script: SCRIPT_KEY, answers})
+    body: JSON.stringify({script: SCRIPT_KEY, answers, modes: runModes, lib_tasks: runLibTask,
+      confidences: Object.fromEntries(Object.entries(planByScenario).map(([k,v]) => [k, v.confidence || 0]))})
   });
   const data = await res.json();
   if (!data.ok) {
@@ -245,6 +389,8 @@ async function pollBatch() {
     renderRows(batch.items || []);
     renderStats(batch);
     updateSignals(batch);
+    const agentItem = (batch.items || []).find(i => ['agent_choose','agent_planning','agent_plan','agent_running','waiting_input','awaiting_confirm','agent_review'].includes(statusFromItem(i)));
+    if (agentItem) showAgentWatch(agentItem); else if (awSid) hideAgentWatch();
     const running = (batch.items || []).find(i => i.status === 'running' || i.status === 'paused' || i.status === 'confirming');
     document.getElementById('plan-title').textContent = batch.status === 'completed' ? 'Run complete' : batch.status === 'needs_training' ? 'Training needed' : 'Automation in progress';
     document.getElementById('plan-copy').textContent = running ? `Current: ${running.name}` : (batch.status === 'completed' ? 'Every scenario in this script has finished.' : 'Waiting for the next scenario...');
@@ -256,6 +402,261 @@ async function pollBatch() {
     pollBusy = false;
   }
 }
+
+// Per-task run-mode (Library replay vs Claude Opus) + manual library-source pick
+document.getElementById('run-board').addEventListener('change', (e) => {
+  const radio = e.target.closest('input[type=radio][name^="mode-"]');
+  if (radio) {
+    runModes[radio.name.slice(5)] = radio.value;
+    if (!batchId) renderRows(plan.items);   // refresh so the source picker shows/hides
+    return;
+  }
+  const sel = e.target.closest('select[name^="lib-"]');
+  if (sel) { runLibTask[sel.name.slice(4)] = sel.value; }
+});
+
+// ── Claude Opus live-watch (Run All) ───────────────────────────────────────
+function hideAgentWatch(){ document.getElementById('agent-watch').style.display = 'none'; awSid = null; }
+
+async function showAgentWatch(item){
+  const panel = document.getElementById('agent-watch');
+  panel.style.display = 'block';
+  const st = statusFromItem(item);
+  if (awSid !== item.scenario_id) {
+    awSid = item.scenario_id; awDecisionSent = false; awAnswerSent = false; awStepCount = -1;
+    awPlanLoaded = false; awPlanSent = false; awPaused = false; awLiveSrc = '';
+    awChoiceSent = false; awConfirmSent = false; awDoneSent = false;
+    document.getElementById('aw-pause').textContent = '⏸ Pause';
+    document.getElementById('aw-live-link').style.display = 'none';
+    document.getElementById('aw-task-name').value = item.name || item.scenario_id || '';
+    const v = document.getElementById('aw-video'); v.style.display = 'none'; v.removeAttribute('src');
+  }
+  document.getElementById('aw-title').textContent = item.name || item.scenario_id;
+  document.getElementById('aw-sub').textContent =
+    st === 'agent_choose' ? "This one isn't saved — pick how to handle it." :
+    st === 'agent_planning' ? 'Claude is drafting a plan…' :
+    st === 'agent_plan' ? 'Review the plan below, then run it.' :
+    st === 'awaiting_confirm' ? 'Confirm or correct the next move.' :
+    st === 'agent_review' ? 'Review the run, then save or skip.' :
+    st === 'waiting_input' ? 'Claude needs your input.' : 'Claude is following the plan…';
+
+  const choiceBox = document.getElementById('aw-choice');
+  const cfBox = document.getElementById('aw-confirm');
+
+  // Phase 0: choice — attempt vs guide me
+  if (st === 'agent_choose' && !awChoiceSent) {
+    choiceBox.style.display = 'block';
+    document.getElementById('aw-rec-attempt').style.display = item.recommended === 'attempt' ? 'inline-block' : 'none';
+    document.getElementById('aw-rec-guided').style.display = item.recommended === 'guided' ? 'inline-block' : 'none';
+    ['aw-plan','aw-steps','aw-ask','aw-review','aw-control','aw-confirm'].forEach(id => document.getElementById(id).style.display = 'none');
+    document.getElementById('aw-live-link').style.display = 'none';
+    return;
+  }
+  choiceBox.style.display = 'none';
+
+  // Guided: confirm-each-move panel
+  if (st === 'awaiting_confirm' && !awConfirmSent) {
+    cfBox.style.display = 'block';
+    document.getElementById('aw-cf-reason').textContent = item.reasoning || 'Next move';
+    document.getElementById('aw-cf-cmd').textContent = item.commands || '';
+    if (item.screenshot_url && item.screenshot_url !== awLiveSrc) {
+      awLiveSrc = item.screenshot_url;
+      document.getElementById('aw-live-img').src = item.screenshot_url;
+      document.getElementById('aw-live-link').href = item.screenshot_url;
+    }
+    if (item.screenshot_url) document.getElementById('aw-live-link').style.display = 'block';
+    ['aw-plan','aw-ask','aw-review','aw-control'].forEach(id => document.getElementById(id).style.display = 'none');
+    document.getElementById('aw-steps').style.display = 'none';
+    return;
+  }
+  cfBox.style.display = 'none';
+  if (st === 'agent_running' || st === 'waiting_input') awConfirmSent = false;  // ready for the next proposal
+
+  // Completion check — Claude thinks it's done; user confirms or sends it back
+  const doneBox = document.getElementById('aw-done');
+  if (st === 'agent_confirm_done' && !awDoneSent) {
+    doneBox.style.display = 'block';
+    if (item.screenshot_url && item.screenshot_url !== awLiveSrc) {
+      awLiveSrc = item.screenshot_url;
+      document.getElementById('aw-live-img').src = item.screenshot_url;
+      document.getElementById('aw-live-link').href = item.screenshot_url;
+    }
+    if (item.screenshot_url) document.getElementById('aw-live-link').style.display = 'block';
+    ['aw-plan','aw-ask','aw-review','aw-control','aw-steps'].forEach(id => document.getElementById(id).style.display = 'none');
+    return;
+  }
+  doneBox.style.display = 'none';
+  if (st === 'agent_running' || st === 'waiting_input') awDoneSent = false;
+
+  // Phase 1: conversational plan — show steps + chat; user guides in plain English
+  const planBox = document.getElementById('aw-plan');
+  if ((st === 'agent_plan' || st === 'agent_planning') && !awPlanSent) {
+    planBox.style.display = 'block';
+    renderPlan(item.plan || [], item.plan_chat || [], st === 'agent_planning');
+    document.getElementById('aw-steps').style.display = 'none';
+    document.getElementById('aw-ask').style.display = 'none';
+    document.getElementById('aw-review').style.display = 'none';
+    document.getElementById('aw-control').style.display = 'none';
+    document.getElementById('aw-live-link').style.display = 'none';
+    return;
+  }
+  planBox.style.display = 'none';
+  document.getElementById('aw-steps').style.display = 'flex';
+  // Live control bar (pause / stop / instruct) while it's actually running.
+  const running = (st === 'agent_running' || st === 'waiting_input');
+  document.getElementById('aw-control').style.display = running ? 'flex' : 'none';
+  try {
+    const d = await (await fetch('/api/run/' + encodeURIComponent(item.scenario_id) + '/steps')).json();
+    const list = d.steps || [];
+    const last = list.length ? list[list.length - 1] : null;
+    // Big live screen — latest screenshot, updated as each move lands.
+    if (running && last && last.screenshot_url && last.screenshot_url !== awLiveSrc) {
+      awLiveSrc = last.screenshot_url;
+      document.getElementById('aw-live-img').src = last.screenshot_url;
+      document.getElementById('aw-live-link').href = last.screenshot_url;
+      document.getElementById('aw-live-link').style.display = 'block';
+    }
+    if (!running) document.getElementById('aw-live-link').style.display = 'none';
+    // Only rebuild the step list when a new move arrives — otherwise images flicker.
+    if (list.length !== awStepCount) {
+      awStepCount = list.length;
+      const box = document.getElementById('aw-steps');
+      box.innerHTML = list.map((s, i) => `
+        <div style="display:flex;gap:9px;align-items:flex-start;font-size:12px;padding:7px 10px;border-radius:8px;background:rgba(255,255,255,.05);">
+          <span style="font-weight:800;color:#dfc27b;flex-shrink:0;">${i+1}</span>
+          <span style="color:rgba(248,244,234,.86);">${esc(s.error || 'working…')}</span>
+          ${s.screenshot_url ? `<a href="${esc(s.screenshot_url)}" target="_blank" title="View screen" style="margin-left:auto;flex-shrink:0;color:#9a948a;text-decoration:none;">view ↗</a>` : ''}
+        </div>`).join('');
+      box.scrollTop = box.scrollHeight;
+    }
+  } catch (e) {}
+  const ask = document.getElementById('aw-ask');
+  if (st === 'waiting_input' && !awAnswerSent) {
+    ask.style.display = 'block';
+    document.getElementById('aw-ask-q').textContent = item.question || 'What should I enter here?';
+    document.getElementById('aw-ask-input').focus();
+  } else {
+    ask.style.display = 'none';
+    if (st !== 'waiting_input') awAnswerSent = false;
+  }
+  const rev = document.getElementById('aw-review');
+  if (st === 'agent_review' && !awDecisionSent) {
+    rev.style.display = 'block';
+    if (item.video_url) {
+      const v = document.getElementById('aw-video');
+      if (v.getAttribute('src') !== item.video_url) v.src = item.video_url;  // set once — don't reset playback
+      v.style.display = 'block';
+    }
+  } else { rev.style.display = 'none'; }
+}
+
+document.getElementById('aw-ask-send').addEventListener('click', async () => {
+  const v = document.getElementById('aw-ask-input').value.trim();
+  if (!v || !awSid) return;
+  awAnswerSent = true;
+  document.getElementById('aw-ask').style.display = 'none';
+  try { await fetch('/api/batch/agent/answer', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({scenario_id: awSid, answer: v})}); } catch(e){}
+  document.getElementById('aw-ask-input').value = '';
+});
+document.getElementById('aw-ask-input').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('aw-ask-send').click(); });
+
+async function sendDecision(action){
+  if (awDecisionSent || !awSid) return;
+  awDecisionSent = true;
+  document.getElementById('aw-review').style.display = 'none';
+  const task_name = document.getElementById('aw-task-name').value.trim();
+  try { await fetch('/api/batch/agent/decision', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({scenario_id: awSid, action, task_name})}); } catch(e){}
+  hideAgentWatch();
+}
+document.getElementById('aw-save').addEventListener('click', () => sendDecision('save'));
+document.getElementById('aw-skip').addEventListener('click', () => sendDecision('skip'));
+
+// ── Conversational plan ─────────────────────────────────────────────────────
+function renderPlan(steps, chat, redrawing){
+  const stepsEl = document.getElementById('aw-plan-steps');
+  stepsEl.innerHTML = redrawing
+    ? '<li style="list-style:none;margin-left:-20px;color:#dfc27b;">Redrawing the plan…</li>'
+    : (steps || []).map(s => `<li>${esc(s.desc || s.cmd || '')}</li>`).join('');
+  const chatEl = document.getElementById('aw-plan-chat');
+  chatEl.innerHTML = (chat || []).map(m => `
+    <div style="align-self:flex-end;max-width:85%;background:rgba(223,194,123,.16);border:1px solid rgba(223,194,123,.4);color:#f4d88a;font-size:12px;padding:6px 10px;border-radius:10px;">${esc(m)}</div>`).join('');
+  document.getElementById('aw-plan-run').disabled = !!redrawing;
+}
+async function sendPlanRefine(){
+  const inp = document.getElementById('aw-plan-msg');
+  const msg = inp.value.trim();
+  if (!msg || !awSid) return;
+  inp.value = '';
+  try { await fetch('/api/batch/agent/plan', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({scenario_id: awSid, action: 'refine', message: msg})}); } catch(e){}
+}
+async function sendPlan(action){
+  if (awPlanSent || !awSid) return;
+  awPlanSent = true;
+  document.getElementById('aw-plan').style.display = 'none';
+  try { await fetch('/api/batch/agent/plan', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({scenario_id: awSid, action})}); } catch(e){}
+}
+document.getElementById('aw-plan-send').addEventListener('click', sendPlanRefine);
+document.getElementById('aw-plan-msg').addEventListener('keydown', e => { if (e.key === 'Enter') sendPlanRefine(); });
+document.getElementById('aw-plan-run').addEventListener('click', () => sendPlan('run'));
+document.getElementById('aw-plan-skip').addEventListener('click', () => sendPlan('skip'));
+
+// ── Choice: attempt vs guide-me ─────────────────────────────────────────────
+async function sendChoice(choice){
+  if (awChoiceSent || !awSid) return;
+  awChoiceSent = true;
+  document.getElementById('aw-choice').style.display = 'none';
+  try { await fetch('/api/batch/agent/choice', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({scenario_id: awSid, choice})}); } catch(e){}
+}
+document.getElementById('aw-choice-attempt').addEventListener('click', () => sendChoice('attempt'));
+document.getElementById('aw-choice-guided').addEventListener('click', () => sendChoice('guided'));
+document.getElementById('aw-choice-skip').addEventListener('click', () => sendChoice('skip'));
+
+// ── Confirm-each-move (guided) ──────────────────────────────────────────────
+async function sendCfConfirm(action, text){
+  awConfirmSent = true;
+  document.getElementById('aw-confirm').style.display = 'none';
+  try { await fetch('/api/batch/agent/confirm', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({scenario_id: awSid, action, text: text||''})}); } catch(e){}
+}
+document.getElementById('aw-cf-yes').addEventListener('click', () => sendCfConfirm('confirm'));
+document.getElementById('aw-cf-stop').addEventListener('click', () => sendCfConfirm('stop'));
+document.getElementById('aw-cf-send').addEventListener('click', () => { const t = document.getElementById('aw-cf-redirect').value.trim(); if(!t) return; document.getElementById('aw-cf-redirect').value=''; sendCfConfirm('redirect', t); });
+document.getElementById('aw-cf-redirect').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('aw-cf-send').click(); });
+
+// ── Completion check (Claude thinks it's done) ──────────────────────────────
+async function sendDone(action, text){
+  awDoneSent = true;
+  document.getElementById('aw-done').style.display = 'none';
+  try { await fetch('/api/batch/agent/done', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({scenario_id: awSid, action, text: text||''})}); } catch(e){}
+}
+document.getElementById('aw-done-yes').addEventListener('click', () => sendDone('finish'));
+document.getElementById('aw-done-continue').addEventListener('click', () => { const t = document.getElementById('aw-done-text').value.trim(); document.getElementById('aw-done-text').value=''; sendDone('continue', t); });
+document.getElementById('aw-done-text').addEventListener('keydown', e => { if (e.key === 'Enter') document.getElementById('aw-done-continue').click(); });
+
+// ── Live control: pause / resume / stop / instruct ──────────────────────────
+async function awControl(action, text){
+  try { await fetch('/api/batch/agent/control', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action, text})}); } catch(e){}
+}
+function setPausedUI(paused){
+  awPaused = paused;
+  document.getElementById('aw-pause').textContent = paused ? '▶ Resume' : '⏸ Pause';
+  document.getElementById('aw-instruct').disabled = !paused;
+  document.getElementById('aw-instruct-send').disabled = !paused;
+  document.getElementById('aw-sub').textContent = paused ? 'Paused — type what Claude should do, or Resume.' : 'Claude is following the plan…';
+}
+document.getElementById('aw-pause').addEventListener('click', () => {
+  if (awPaused) { awControl('resume'); setPausedUI(false); }
+  else { awControl('pause'); setPausedUI(true); }
+});
+document.getElementById('aw-ctl-stop').addEventListener('click', () => { awControl('stop'); });
+async function sendInstruction(){
+  const t = document.getElementById('aw-instruct').value.trim();
+  if (!t) return;
+  document.getElementById('aw-instruct').value = '';
+  await awControl('instruct', t);
+  setPausedUI(true);  // stays paused; it runs the instruction then waits for more / resume
+}
+document.getElementById('aw-instruct-send').addEventListener('click', sendInstruction);
+document.getElementById('aw-instruct').addEventListener('keydown', e => { if (e.key === 'Enter') sendInstruction(); });
 
 document.getElementById('start-batch').addEventListener('click', startBatch);
 loadPlan();

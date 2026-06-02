@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>EX3 TestOps Trailer</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;700;800&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #070808;
+      --bg-soft: #111313;
+      --gold: #d7bc77;
+      --gold-soft: rgba(215, 188, 119, 0.2);
+      --mint: #7ff0bb;
+      --sky: #8ec6ff;
+      --danger: #ff8c73;
+      --paper: #f6f1e7;
+      --muted: rgba(246, 241, 231, 0.72);
+      --line: rgba(255, 255, 255, 0.12);
+      --panel: rgba(255, 255, 255, 0.06);
+      --shadow: 0 28px 80px rgba(0, 0, 0, 0.45);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { min-height: 100%; }
+    body {
+      font-family: Manrope, sans-serif;
+      background:
+        radial-gradient(circle at 18% 12%, rgba(142, 198, 255, 0.14), transparent 30%),
+        radial-gradient(circle at 84% 18%, rgba(215, 188, 119, 0.12), transparent 28%),
+        linear-gradient(180deg, #050606 0%, #0a0b0c 100%);
+      color: var(--paper);
+      display: grid;
+      place-items: center;
+      overflow: hidden;
+    }
+    .shell {
+      width: min(96vw, 1440px);
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 240px;
+      gap: 18px;
+      align-items: stretch;
+    }
+    .stage {
+      position: relative;
+      aspect-ratio: 16 / 9;
+      border-radius: 28px;
+      overflow: hidden;
+      background:
+        radial-gradient(circle at 20% 10%, rgba(215, 188, 119, 0.15), transparent 32%),
+        radial-gradient(circle at 76% 18%, rgba(96, 164, 255, 0.12), transparent 30%),
+        linear-gradient(140deg, #0b0d0d 0%, #131514 55%, #1a1712 100%);
+      box-shadow: var(--shadow);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+    }
+    .grain {
+      position: absolute;
+      inset: 0;
+      background-image:
+        linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+      background-size: 36px 36px;
+      mask-image: linear-gradient(180deg, rgba(0,0,0,0.4), rgba(0,0,0,0.9));
+      pointer-events: none;
+    }
+    .scene {
+      position: absolute;
+      inset: 0;
+      padding: 64px 68px 54px;
+      display: grid;
+      align-content: center;
+      opacity: 0;
+      transform: scale(1.02);
+      transition: opacity .7s ease, transform .7s ease;
+      pointer-events: none;
+    }
+    .scene.on {
+      opacity: 1;
+      transform: scale(1);
+      pointer-events: auto;
+    }
+    .brand {
+      width: 58px;
+      height: 58px;
+      display: grid;
+      place-items: center;
+      border-radius: 16px;
+      background: linear-gradient(135deg, #ead49b, #a78343);
+      color: #0b0b0c;
+      font-family: "Space Grotesk", sans-serif;
+      font-weight: 700;
+      letter-spacing: .04em;
+      box-shadow: 0 14px 38px rgba(215, 188, 119, 0.28);
+    }
+    .eyebrow {
+      color: var(--gold);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: .18em;
+      text-transform: uppercase;
+      margin-bottom: 14px;
+    }
+    .headline {
+      font-family: "Space Grotesk", sans-serif;
+      font-size: clamp(36px, 5vw, 72px);
+      line-height: .96;
+      letter-spacing: -.04em;
+      max-width: 880px;
+    }
+    .copy {
+      margin-top: 18px;
+      color: var(--muted);
+      font-size: clamp(15px, 1.6vw, 22px);
+      line-height: 1.45;
+      max-width: 760px;
+    }
+    .caption {
+      position: absolute;
+      left: 40px;
+      right: 40px;
+      bottom: 34px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      background: rgba(9, 10, 10, 0.62);
+      border: 1px solid rgba(255,255,255,0.08);
+      backdrop-filter: blur(18px);
+      border-radius: 16px;
+      padding: 14px 18px;
+    }
+    .caption strong {
+      font-size: 15px;
+      letter-spacing: -.01em;
+    }
+    .caption span {
+      color: rgba(246, 241, 231, 0.64);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+    }
+    .panel {
+      margin-top: 30px;
+      width: min(100%, 920px);
+      border-radius: 22px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.1);
+      backdrop-filter: blur(16px);
+      padding: 22px;
+      box-shadow: 0 20px 56px rgba(0,0,0,0.26);
+    }
+    .panel-grid {
+      display: grid;
+      grid-template-columns: 1.3fr .7fr;
+      gap: 16px;
+    }
+    .stack {
+      display: grid;
+      gap: 10px;
+    }
+    .tile {
+      border-radius: 16px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 15px 16px;
+    }
+    .tile strong {
+      display: block;
+      font-size: 15px;
+      margin-bottom: 4px;
+    }
+    .tile p {
+      color: rgba(246, 241, 231, 0.68);
+      font-size: 13px;
+      line-height: 1.45;
+    }
+    .metric-grid {
+      display: grid;
+      gap: 10px;
+    }
+    .metric {
+      min-height: 90px;
+      border-radius: 18px;
+      background: rgba(255,255,255,0.06);
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 16px;
+      display: grid;
+      align-content: space-between;
+    }
+    .metric .value {
+      font-size: 34px;
+      font-weight: 800;
+      letter-spacing: -.04em;
+    }
+    .metric .label {
+      color: rgba(246,241,231,.62);
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .12em;
+    }
+    .workflow {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 28px;
+    }
+    .chip {
+      padding: 10px 14px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.07);
+      border: 1px solid rgba(255,255,255,0.1);
+      font-size: 13px;
+      font-weight: 700;
+    }
+    .chip.ok { color: var(--mint); border-color: rgba(127, 240, 187, 0.26); background: rgba(127,240,187,0.08); }
+    .chip.warn { color: var(--gold); border-color: rgba(215, 188, 119, 0.26); background: rgba(215,188,119,0.08); }
+    .chip.stop { color: var(--danger); border-color: rgba(255, 140, 115, 0.26); background: rgba(255,140,115,0.09); }
+    .run-board {
+      margin-top: 26px;
+      display: grid;
+      gap: 12px;
+    }
+    .run-row {
+      display: grid;
+      grid-template-columns: 42px minmax(0,1fr) 120px 180px;
+      gap: 14px;
+      align-items: center;
+      padding: 14px 16px;
+      border-radius: 16px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.08);
+      opacity: 0;
+      transform: translateY(12px);
+      animation: rise .5s forwards;
+    }
+    .orb {
+      width: 34px;
+      height: 34px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      font-weight: 800;
+      font-size: 12px;
+    }
+    .orb.ok { background: rgba(127,240,187,0.18); color: var(--mint); }
+    .orb.warn { background: rgba(215,188,119,0.18); color: var(--gold); }
+    .orb.stop { background: rgba(255,140,115,0.18); color: var(--danger); }
+    .row-title { font-size: 16px; font-weight: 800; }
+    .row-meta { color: rgba(246,241,231,.62); font-size: 12px; margin-top: 2px; }
+    .pill {
+      justify-self: start;
+      padding: 7px 11px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+      border: 1px solid transparent;
+    }
+    .pill.ok { color: var(--mint); border-color: rgba(127,240,187,0.24); background: rgba(127,240,187,0.08); }
+    .pill.warn { color: var(--gold); border-color: rgba(215,188,119,0.24); background: rgba(215,188,119,0.08); }
+    .pill.stop { color: var(--danger); border-color: rgba(255,140,115,0.24); background: rgba(255,140,115,0.08); }
+    .track {
+      height: 9px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      overflow: hidden;
+    }
+    .fill {
+      height: 100%;
+      width: 0;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #d7bc77, #7ff0bb);
+      animation: fill 3.8s forwards;
+    }
+    .side {
+      display: grid;
+      gap: 14px;
+      align-content: start;
+    }
+    .card {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.09);
+      border-radius: 22px;
+      padding: 18px;
+      box-shadow: 0 18px 46px rgba(0,0,0,0.28);
+    }
+    .card h3 {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: .14em;
+      color: rgba(246,241,231,.58);
+      margin-bottom: 10px;
+    }
+    .timeline {
+      display: grid;
+      gap: 10px;
+    }
+    .timeline-item {
+      padding: 10px 12px;
+      border-radius: 14px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.07);
+    }
+    .timeline-item strong {
+      display: block;
+      font-size: 13px;
+      margin-bottom: 2px;
+    }
+    .timeline-item span {
+      color: rgba(246,241,231,.64);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+    .mini-video {
+      position: relative;
+      min-height: 180px;
+      border-radius: 18px;
+      background:
+        linear-gradient(140deg, rgba(255,255,255,0.02), rgba(255,255,255,0.08)),
+        linear-gradient(135deg, #0f1111, #171814);
+      border: 1px solid rgba(255,255,255,0.08);
+      overflow: hidden;
+      display: grid;
+      place-items: center;
+    }
+    .mini-video::after {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(120deg, transparent 32%, rgba(255,255,255,0.08) 50%, transparent 68%);
+      transform: translateX(-100%);
+      animation: sweep 2.6s linear infinite;
+    }
+    .play {
+      width: 70px;
+      height: 70px;
+      border-radius: 50%;
+      display: grid;
+      place-items: center;
+      background: rgba(215, 188, 119, 0.94);
+      color: #0d0d0e;
+      box-shadow: 0 18px 40px rgba(215, 188, 119, 0.28);
+      z-index: 1;
+    }
+    .play svg {
+      width: 28px;
+      height: 28px;
+      margin-left: 4px;
+      fill: currentColor;
+    }
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .progress {
+      flex: 1;
+      min-width: 0;
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(255,255,255,0.08);
+      overflow: hidden;
+    }
+    .progress i {
+      display: block;
+      height: 100%;
+      width: 0;
+      background: linear-gradient(90deg, #d7bc77, #8ec6ff, #7ff0bb);
+      animation: bar 55s linear forwards;
+    }
+    .button-row {
+      display: flex;
+      gap: 10px;
+    }
+    .button {
+      min-height: 40px;
+      padding: 0 14px;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.06);
+      color: var(--paper);
+      font: inherit;
+      font-size: 13px;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .button.primary {
+      background: linear-gradient(135deg, #e4c983, #aa8442);
+      color: #0e0f10;
+      border-color: transparent;
+    }
+    .footer-note {
+      color: rgba(246,241,231,.56);
+      font-size: 11px;
+      letter-spacing: .08em;
+      text-transform: uppercase;
+    }
+    .accent-grid {
+      position: absolute;
+      inset: auto 60px 112px auto;
+      width: 240px;
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 12px;
+    }
+    .accent-grid .metric {
+      min-height: 78px;
+    }
+    @keyframes rise { to { opacity: 1; transform: translateY(0); } }
+    @keyframes fill { to { width: 100%; } }
+    @keyframes bar { to { width: 100%; } }
+    @keyframes sweep { to { transform: translateX(120%); } }
+    @media (max-width: 1080px) {
+      .shell { grid-template-columns: 1fr; }
+      .side { grid-template-columns: repeat(2, minmax(0,1fr)); }
+    }
+    @media (max-width: 760px) {
+      body { padding: 10px; }
+      .scene { padding: 28px 24px 90px; }
+      .caption { left: 16px; right: 16px; bottom: 14px; flex-direction: column; align-items: flex-start; }
+      .panel-grid { grid-template-columns: 1fr; }
+      .run-row { grid-template-columns: 36px minmax(0,1fr); }
+      .run-row > .pill, .run-row > div:last-child { grid-column: 2; }
+      .accent-grid { display: none; }
+      .side { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <section class="stage" id="stage">
+      <div class="grain"></div>
+
+      <article class="scene" data-start="0" data-end="6">
+        <div class="brand">EX3</div>
+        <div class="eyebrow" style="margin-top: 26px;">Teach it once</div>
+        <h1 class="headline">Replay it forever.</h1>
+        <p class="copy">AI-assisted SuccessFactors UAT that learns every approved workflow, replays known tasks exactly, and only asks for human judgment when it truly needs it.</p>
+        <div class="workflow">
+          <div class="chip">Upload</div>
+          <div class="chip">Match</div>
+          <div class="chip">Run</div>
+          <div class="chip">Approve</div>
+          <div class="chip ok">Replay forever</div>
+        </div>
+        <div class="caption"><strong>EX3 TestOps turns repeated UAT effort into reusable system memory.</strong><span>Opening hook</span></div>
+      </article>
+
+      <article class="scene" data-start="6" data-end="13">
+        <div class="eyebrow">Ingestion</div>
+        <h2 class="headline" style="max-width: 700px;">Drop in a workbook. The suite appears on its own.</h2>
+        <div class="panel">
+          <div class="panel-grid">
+            <div class="stack">
+              <div class="tile">
+                <strong>EX3_RCM_Workbook.xlsx</strong>
+                <p>Parsed into named scenarios, roles, actions, expected outcomes, and run-ready steps.</p>
+              </div>
+              <div class="tile">
+                <strong>Filed under the Vault</strong>
+                <p>Company, module, and script structure are created automatically on upload.</p>
+              </div>
+              <div class="tile">
+                <strong>Ready to run</strong>
+                <p>No manual scripting layer before the product can start working.</p>
+              </div>
+            </div>
+            <div class="metric-grid">
+              <div class="metric"><div class="value">3</div><div class="label">Tasks parsed</div></div>
+              <div class="metric"><div class="value">12</div><div class="label">Steps ready</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="caption"><strong>Upload a UAT workbook and TestOps extracts the real task flow automatically.</strong><span>Scripts become runnable scenarios</span></div>
+      </article>
+
+      <article class="scene" data-start="13" data-end="21">
+        <div class="eyebrow">Memory check</div>
+        <h2 class="headline" style="max-width: 760px;">Before the run starts, it checks what it already knows.</h2>
+        <div class="run-board">
+          <div class="run-row" style="animation-delay:.1s;">
+            <div class="orb ok">1</div>
+            <div><div class="row-title">Navigating Modules</div><div class="row-meta">Matched to a saved task by intent</div></div>
+            <div class="pill ok">100%</div>
+            <div class="track"><div class="fill" style="animation-duration:1.2s;"></div></div>
+          </div>
+          <div class="run-row" style="animation-delay:.5s;">
+            <div class="orb ok">2</div>
+            <div><div class="row-title">How to Proxy</div><div class="row-meta">Known workflow with placeholders already templated</div></div>
+            <div class="pill ok">100%</div>
+            <div class="track"><div class="fill" style="animation-duration:1.4s;"></div></div>
+          </div>
+          <div class="run-row" style="animation-delay:.9s;">
+            <div class="orb warn">3</div>
+            <div><div class="row-title">Edit Job Information</div><div class="row-meta">Partially known, human judgment still needed later</div></div>
+            <div class="pill warn">Partial</div>
+            <div class="track"><div class="fill" style="animation-duration:1.7s;width:58%;"></div></div>
+          </div>
+        </div>
+        <div class="caption"><strong>Saved tasks are matched by meaning, not exact wording.</strong><span>Green work replays free</span></div>
+      </article>
+
+      <article class="scene" data-start="21" data-end="30">
+        <div class="eyebrow">Run all</div>
+        <h2 class="headline" style="max-width: 720px;">Launch the whole suite from one command centre.</h2>
+        <div class="panel">
+          <div class="panel-grid">
+            <div class="stack">
+              <div class="tile"><strong>One pre-flight input</strong><p>Shared variables are answered once for the whole run.</p></div>
+              <div class="tile"><strong>Per-task routing</strong><p>Known tasks replay. Unknown tasks go to AI or live guidance.</p></div>
+              <div class="tile"><strong>Continuous evidence</strong><p>Each scenario leaves behind video, screenshots, and audit events.</p></div>
+            </div>
+            <div class="metric-grid">
+              <div class="metric"><div class="value">3</div><div class="label">Scenarios</div></div>
+              <div class="metric"><div class="value">1</div><div class="label">Input prompt</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="accent-grid">
+          <div class="metric"><div class="value">2</div><div class="label">Green</div></div>
+          <div class="metric"><div class="value">1</div><div class="label">Needs focus</div></div>
+        </div>
+        <div class="caption"><strong>Run one task or the entire script. The system routes each scenario intelligently.</strong><span>Batch orchestration</span></div>
+      </article>
+
+      <article class="scene" data-start="30" data-end="39">
+        <div class="eyebrow">Execution</div>
+        <h2 class="headline" style="max-width: 760px;">Known work replays exactly as approved.</h2>
+        <div class="run-board">
+          <div class="run-row" style="animation-delay:.2s;">
+            <div class="orb ok">1</div>
+            <div><div class="row-title">Open module picker</div><div class="row-meta">Saved command path used</div></div>
+            <div class="pill ok">Passed</div>
+            <div class="track"><div class="fill" style="animation-duration:1.2s;"></div></div>
+          </div>
+          <div class="run-row" style="animation-delay:.7s;">
+            <div class="orb ok">2</div>
+            <div><div class="row-title">Proxy as user</div><div class="row-meta">Templated target value inserted into the replay</div></div>
+            <div class="pill ok">Passed</div>
+            <div class="track"><div class="fill" style="animation-duration:1.5s;"></div></div>
+          </div>
+          <div class="run-row" style="animation-delay:1.2s;">
+            <div class="orb ok">3</div>
+            <div><div class="row-title">Verify the state</div><div class="row-meta">Recorded proof captured as the task completes</div></div>
+            <div class="pill ok">Recorded</div>
+            <div class="track"><div class="fill" style="animation-duration:1.8s;"></div></div>
+          </div>
+        </div>
+        <div class="caption"><strong>Replay is deterministic: the same approved commands, every time.</strong><span>Trusted automation</span></div>
+      </article>
+
+      <article class="scene" data-start="39" data-end="47">
+        <div class="eyebrow">Human in the loop</div>
+        <h2 class="headline" style="max-width: 840px;">When something is new, AI attempts it live and hands over only where judgment matters.</h2>
+        <div class="workflow">
+          <div class="chip warn">AI attempts the unknown step</div>
+          <div class="chip">Live watch stays visible</div>
+          <div class="chip stop">Final save pauses for human review</div>
+          <div class="chip ok">Recorded actions become reusable</div>
+        </div>
+        <div class="panel" style="max-width: 760px;">
+          <div class="tile">
+            <strong>Train live</strong>
+            <p>Click, type, key, scroll, or describe the correction. The product captures the move, resumes the run, and preserves the proof.</p>
+          </div>
+        </div>
+        <div class="caption"><strong>You step in only for the novel or high-judgment part of the workflow.</strong><span>AI plus human takeover</span></div>
+      </article>
+
+      <article class="scene" data-start="47" data-end="55">
+        <div class="eyebrow">Proof and memory</div>
+        <h2 class="headline" style="max-width: 760px;">Review the video. Approve the result. Save the task back to the library.</h2>
+        <div class="panel">
+          <div class="panel-grid">
+            <div class="mini-video">
+              <div class="play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+            </div>
+            <div class="stack">
+              <div class="tile"><strong>Recorded evidence</strong><p>Every run leaves video, screenshots, and a full audit trail.</p></div>
+              <div class="tile"><strong>Approve and save</strong><p>Once confirmed, the learned task becomes reusable memory for future scripts.</p></div>
+              <div class="tile"><strong>Next run: greener</strong><p>What was manual becomes deterministic. What was new becomes known.</p></div>
+            </div>
+          </div>
+        </div>
+        <div class="caption"><strong>Every approved run compounds. Every future run gets more hands-off.</strong><span>Review -> approve -> save -> reuse</span></div>
+      </article>
+
+      <article class="scene" data-start="55" data-end="60">
+        <div class="brand">EX3</div>
+        <div class="eyebrow" style="margin-top: 26px;">EX3 TestOps</div>
+        <h2 class="headline" style="max-width: 800px;">SuccessFactors UAT that learns.</h2>
+        <p class="copy">Upload. Teach once. Replay forever.</p>
+        <div class="caption"><strong>Built for real SuccessFactors execution, visible proof, and compounding automation memory.</strong><span>Final lockup</span></div>
+      </article>
+    </section>
+
+    <aside class="side">
+      <div class="card">
+        <h3>Trailer</h3>
+        <div class="controls">
+          <div class="progress"><i id="progress"></i></div>
+          <div class="button-row">
+            <button class="button primary" id="playBtn">Replay</button>
+            <button class="button" id="pauseBtn">Pause</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>What it shows</h3>
+        <div class="timeline">
+          <div class="timeline-item"><strong>Upload</strong><span>Workbook in, scenarios parsed, run-ready tasks appear.</span></div>
+          <div class="timeline-item"><strong>Match</strong><span>Task library recognition by intent, not wording.</span></div>
+          <div class="timeline-item"><strong>Run</strong><span>Known tasks replay exactly as approved.</span></div>
+          <div class="timeline-item"><strong>Guide</strong><span>AI attempts the unknown, human takes over only when needed.</span></div>
+          <div class="timeline-item"><strong>Save</strong><span>Review video, approve, and turn the run into reusable memory.</span></div>
+        </div>
+      </div>
+
+      <div class="card">
+        <h3>Final message</h3>
+        <div class="timeline-item">
+          <strong>Teach it once. Replay it forever.</strong>
+          <span>This page is a watchable trailer cut built directly into the product so it can be recorded or shared immediately.</span>
+        </div>
+      </div>
+
+      <div class="footer-note">Owner-only showreel · recordable in-browser</div>
+    </aside>
+  </div>
+
+  <script>
+    const scenes = [...document.querySelectorAll('.scene')];
+    const progress = document.getElementById('progress');
+    const playBtn = document.getElementById('playBtn');
+    const pauseBtn = document.getElementById('pauseBtn');
+    const total = 60;
+    let timer = null;
+    let startedAt = 0;
+    let pausedAt = 0;
+    let running = false;
+
+    function setSceneAt(second) {
+      let active = scenes[0];
+      for (const scene of scenes) {
+        const start = Number(scene.dataset.start || 0);
+        const end = Number(scene.dataset.end || total);
+        if (second >= start && second < end) {
+          active = scene;
+        }
+      }
+      scenes.forEach(scene => scene.classList.toggle('on', scene === active));
+    }
+
+    function tick() {
+      const elapsed = Math.min(total, (Date.now() - startedAt) / 1000);
+      progress.style.width = `${(elapsed / total) * 100}%`;
+      setSceneAt(elapsed);
+      if (elapsed >= total) {
+        clearInterval(timer);
+        timer = null;
+        running = false;
+        pausedAt = total;
+      }
+    }
+
+    function play(fromSecond = 0) {
+      clearInterval(timer);
+      pausedAt = fromSecond;
+      startedAt = Date.now() - (fromSecond * 1000);
+      running = true;
+      tick();
+      timer = setInterval(tick, 100);
+    }
+
+    function pause() {
+      if (!running) return;
+      pausedAt = Math.min(total, (Date.now() - startedAt) / 1000);
+      clearInterval(timer);
+      timer = null;
+      running = false;
+    }
+
+    playBtn.addEventListener('click', () => play(0));
+    pauseBtn.addEventListener('click', () => pause());
+
+    play(0);
+  </script>
+</body>
+</html>

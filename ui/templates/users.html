@@ -3,16 +3,43 @@
 
 {% block content %}
 <style>
-  .users-grid { display:grid; grid-template-columns: minmax(0,1fr) 360px; gap:18px; align-items:start; }
-  .user-table { overflow:hidden; }
-  .user-row { display:grid; grid-template-columns: minmax(0,1fr) 130px 110px 90px; gap:12px; align-items:center; padding:14px 16px; border-bottom:1px solid var(--line); }
-  .co-pill { width:max-content; padding:4px 9px; border-radius:999px; background:rgba(35,103,200,.08); border:1px solid rgba(35,103,200,.16); color:#2367c8; font-size:11px; font-weight:750; }
+  .users-grid { display:grid; grid-template-columns: minmax(0,1fr) 380px; gap:20px; align-items:start; }
+  .u-toolbar { display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap; }
+  .u-search { flex:1; min-width:200px; position:relative; }
+  .u-search input { width:100%; }
+  .u-count { font-size:12px; color:var(--muted); font-weight:700; white-space:nowrap; }
+  .u-thead { display:grid; grid-template-columns: minmax(0,1fr) 120px 100px 84px; gap:12px; padding:10px 16px; font-size:10px; font-weight:800; letter-spacing:.06em; text-transform:uppercase; color:var(--muted); border-bottom:1px solid var(--line); }
+  .user-row { display:grid; grid-template-columns: minmax(0,1fr) 120px 100px 84px; gap:12px; align-items:center; padding:13px 16px; border-bottom:1px solid var(--line); cursor:pointer; transition:background .12s; }
   .user-row:last-child { border-bottom:0; }
-  .role-pill { width:max-content; padding:4px 9px; border-radius:999px; background:rgba(185,149,79,.12); border:1px solid rgba(185,149,79,.22); color:#79591f; font-size:11px; font-weight:800; text-transform:capitalize; }
-  .form-card { padding:20px; }
-  .form-card label { display:block; margin:12px 0 6px; color:var(--muted); font-size:12px; font-weight:750; }
-  .form-card select { width:100%; min-height:40px; border:1px solid var(--line); border-radius:11px; padding:9px 11px; background:rgba(255,255,255,.78); }
-  @media(max-width: 900px){ .users-grid{grid-template-columns:1fr;} }
+  .user-row:hover { background:rgba(185,149,79,.06); }
+  .user-row.editing { background:rgba(185,149,79,.12); box-shadow:inset 3px 0 0 #b9954f; }
+  .u-id { display:flex; align-items:center; gap:11px; min-width:0; }
+  .u-avatar { width:34px; height:34px; border-radius:50%; flex-shrink:0; display:grid; place-items:center; font-size:12px; font-weight:800; color:#fff; background:linear-gradient(135deg,#b9954f,#7d5d22); }
+  .u-name { font-weight:750; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .u-uname { font-size:12px; color:var(--muted); }
+  .you-tag { font-size:9px; font-weight:800; background:rgba(31,157,90,.16); color:#1f7d49; padding:1px 6px; border-radius:999px; margin-left:6px; vertical-align:middle; }
+  .co-pill { width:max-content; padding:4px 9px; border-radius:999px; background:rgba(35,103,200,.08); border:1px solid rgba(35,103,200,.16); color:#2367c8; font-size:11px; font-weight:750; }
+  .role-pill { width:max-content; padding:4px 10px; border-radius:999px; font-size:11px; font-weight:800; text-transform:capitalize; border:1px solid; }
+  .role-owner { background:rgba(185,149,79,.14); border-color:rgba(185,149,79,.32); color:#79591f; }
+  .role-admin { background:rgba(201,73,61,.12); border-color:rgba(201,73,61,.28); color:#a8392e; }
+  .role-lead  { background:rgba(35,103,200,.10); border-color:rgba(35,103,200,.24); color:#2367c8; }
+  .role-tester{ background:rgba(31,157,90,.12); border-color:rgba(31,157,90,.28); color:#1f7d49; }
+  .role-viewer{ background:rgba(0,0,0,.05); border-color:rgba(0,0,0,.1); color:#6e6e73; }
+  .row-x { border:0; background:none; color:#c9493d; font-size:12px; font-weight:750; cursor:pointer; padding:6px; border-radius:8px; }
+  .row-x:hover { background:rgba(201,73,61,.1); }
+  .form-card { padding:22px; position:sticky; top:18px; }
+  .form-card label { display:block; margin:13px 0 6px; color:var(--muted); font-size:12px; font-weight:750; }
+  .form-card select { width:100%; min-height:42px; border:1px solid var(--line); border-radius:11px; padding:10px 11px; background:rgba(255,255,255,.78); font-size:14px; }
+  .pw-wrap { position:relative; }
+  .pw-wrap input { padding-right:148px; }
+  .pw-tools { position:absolute; right:8px; top:50%; transform:translateY(-50%); display:flex; gap:4px; }
+  .pw-tool { border:0; background:rgba(0,0,0,.05); border-radius:7px; font-size:10px; font-weight:750; color:var(--muted); padding:4px 7px; cursor:pointer; }
+  .pw-tool:hover { background:rgba(0,0,0,.1); color:var(--ink); }
+  .role-legend { margin-top:18px; border-top:1px solid var(--line); padding-top:14px; display:grid; gap:7px; }
+  .role-legend-row { display:flex; gap:9px; align-items:baseline; font-size:11px; color:var(--muted); }
+  .role-legend-row b { color:var(--ink); font-weight:750; text-transform:capitalize; flex-shrink:0; width:54px; }
+  .u-empty { padding:40px 16px; text-align:center; color:var(--muted); font-size:13px; }
+  @media(max-width: 900px){ .users-grid{grid-template-columns:1fr;} .form-card{position:static;} }
 </style>
 
 <div class="topbar">
@@ -25,56 +52,170 @@
 
 <div class="content">
   <div class="content-inner">
-    <div style="margin-bottom:24px;">
+    <div style="margin-bottom:22px;">
       <div class="page-kicker">Access control</div>
       <h1 class="page-title">Users, roles, and permissions.</h1>
       <p class="page-copy">Give testers the ability to run and train, leads the ability to approve and publish memory, and admins control over the workspace.</p>
     </div>
 
     <div class="users-grid">
-      <section class="surface user-table">
-        {% for user in users %}
-        <div class="user-row">
-          <div>
-            <div style="font-weight:800;">{{ user.name }}</div>
-            <div style="font-size:12px;color:var(--muted);">{{ user.username }}</div>
+      <section>
+        <div class="u-toolbar">
+          <div class="u-search">
+            <input id="u-search" class="input" type="text" placeholder="Search people by name, username, company or role…" autocomplete="off" />
           </div>
-          <span class="co-pill">{{ user.company or "internal" }}</span>
-          <span class="role-pill">{{ user.role }}</span>
-          {% if user.username != "louie" %}
-          <form method="post" action="/api/users/delete">
-            <input type="hidden" name="username" value="{{ user.username }}" />
-            <button class="btn btn-danger" type="submit">Remove</button>
-          </form>
-          {% endif %}
+          <span class="u-count"><span id="u-shown">{{ users|length }}</span> of {{ users|length }} {{ 'person' if users|length == 1 else 'people' }}</span>
         </div>
-        {% endfor %}
+
+        <div class="surface" style="overflow:hidden;">
+          <div class="u-thead">
+            <span>Person</span><span>Company</span><span>Role</span><span></span>
+          </div>
+          <div id="u-list">
+            {% for user in users %}
+            {% set is_self = current_user and user.username == current_user.username %}
+            <div class="user-row" tabindex="0"
+                 data-name="{{ user.name }}" data-username="{{ user.username }}"
+                 data-role="{{ user.role }}" data-company="{{ user.company or 'internal' }}"
+                 data-search="{{ user.name|lower }} {{ user.username|lower }} {{ (user.company or 'internal')|lower }} {{ user.role|lower }}">
+              <div class="u-id">
+                <span class="u-avatar">{{ (user.name or user.username)[:2]|upper }}</span>
+                <div style="min-width:0;">
+                  <div class="u-name">{{ user.name }}{% if is_self %}<span class="you-tag">YOU</span>{% endif %}</div>
+                  <div class="u-uname">{{ user.username }}</div>
+                </div>
+              </div>
+              <span class="co-pill">{{ user.company or "internal" }}</span>
+              <span class="role-pill role-{{ user.role }}">{{ user.role }}</span>
+              {% if user.role != "owner" and not is_self %}
+              <form method="post" action="/api/users/delete" class="row-del" onsubmit="return confirm('Remove {{ user.name }} ({{ user.username }})? They will lose access immediately.');">
+                <input type="hidden" name="username" value="{{ user.username }}" />
+                <button class="row-x" type="submit">Remove</button>
+              </form>
+              {% else %}
+              <span style="font-size:10px;color:var(--muted);text-align:center;">{{ 'protected' if user.role == 'owner' else '—' }}</span>
+              {% endif %}
+            </div>
+            {% endfor %}
+          </div>
+          <div id="u-noresults" class="u-empty" style="display:none;">No people match your search.</div>
+        </div>
       </section>
 
-      <form class="surface form-card" method="post" action="/api/users">
-        <div class="section-label">Add or update user</div>
+      <form id="user-form" class="surface form-card" method="post" action="/api/users">
+        <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
+          <div class="section-label" id="form-title" style="margin:0;">Add a new user</div>
+          <button type="button" id="new-user-btn" style="display:none;border:0;background:rgba(0,0,0,.05);border-radius:8px;font-size:11px;font-weight:750;color:var(--muted);padding:5px 10px;cursor:pointer;">+ New user</button>
+        </div>
         <label>Name</label>
         <input class="input" name="name" placeholder="e.g. Priya Shah" />
         <label>Username</label>
-        <input class="input" name="username" required placeholder="e.g. priya" />
+        <input class="input" id="f-username" name="username" required placeholder="e.g. priya" autocomplete="off" />
         <label>Password</label>
-        <input class="input" name="password" type="password" placeholder="Leave blank to keep existing" />
+        <div class="pw-wrap">
+          <input class="input" id="f-password" name="password" type="password" placeholder="Required for new users" autocomplete="new-password" />
+          <div class="pw-tools">
+            <button type="button" class="pw-tool" id="pw-gen">Generate</button>
+            <button type="button" class="pw-tool" id="pw-show">Show</button>
+          </div>
+        </div>
         <label>Role</label>
-        <select name="role">
+        <select name="role" id="f-role">
           {% for role in roles %}
           <option value="{{ role }}">{{ role|capitalize }}</option>
           {% endfor %}
         </select>
         <label>Company</label>
-        <select name="company">
+        <select name="company" id="f-company">
           {% for co in companies %}
           <option value="{{ co.key }}">{{ co.name }}</option>
           {% endfor %}
         </select>
-        <button class="btn btn-primary" style="width:100%;margin-top:16px;" type="submit">Save user</button>
-        <p style="font-size:12px;color:var(--muted);margin-top:12px;">Tester: run/train. Lead: approve/library/upload. Admin: users and workspace control.</p>
+        <button class="btn btn-primary" id="save-btn" style="width:100%;margin-top:18px;" type="submit">Save user</button>
+
+        <div class="role-legend">
+          <div class="role-legend-row"><b>Viewer</b><span>Read-only — view scripts, runs and results.</span></div>
+          <div class="role-legend-row"><b>Tester</b><span>Run and train scenarios.</span></div>
+          <div class="role-legend-row"><b>Lead</b><span>Approve, publish to the library, upload scripts.</span></div>
+          <div class="role-legend-row"><b>Admin</b><span>Manage users and workspace settings.</span></div>
+          <div class="role-legend-row"><b>Owner</b><span>Full control of everything.</span></div>
+        </div>
       </form>
     </div>
   </div>
 </div>
+
+{% raw %}
+<script>
+(function(){
+  const form = document.getElementById('user-form');
+  const title = document.getElementById('form-title');
+  const newBtn = document.getElementById('new-user-btn');
+  const uname = document.getElementById('f-username');
+  const pw = document.getElementById('f-password');
+  const saveBtn = document.getElementById('save-btn');
+  const search = document.getElementById('u-search');
+  const rows = Array.from(document.querySelectorAll('.user-row'));
+  const shown = document.getElementById('u-shown');
+  const noResults = document.getElementById('u-noresults');
+
+  function setNewMode(){
+    form.reset();
+    title.textContent = 'Add a new user';
+    pw.placeholder = 'Required for new users';
+    uname.readOnly = false;
+    saveBtn.textContent = 'Save user';
+    newBtn.style.display = 'none';
+    rows.forEach(r => r.classList.remove('editing'));
+  }
+  newBtn.addEventListener('click', setNewMode);
+
+  function loadUser(row){
+    const d = row.dataset;
+    form.name.value = d.name || '';
+    uname.value = d.username || '';
+    uname.readOnly = true;                 // editing keeps the same username (it's the key)
+    pw.value = '';
+    pw.placeholder = 'Leave blank to keep current password';
+    document.getElementById('f-role').value = d.role || 'viewer';
+    document.getElementById('f-company').value = d.company || 'internal';
+    title.textContent = 'Editing ' + (d.name || d.username);
+    saveBtn.textContent = 'Update user';
+    newBtn.style.display = 'inline-block';
+    rows.forEach(r => r.classList.toggle('editing', r === row));
+    if (window.innerWidth < 900) form.scrollIntoView({behavior:'smooth', block:'start'});
+  }
+  rows.forEach(row => {
+    row.addEventListener('click', e => { if (!e.target.closest('.row-del')) loadUser(row); });
+    row.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.target.closest('.row-del')) loadUser(row); });
+  });
+
+  // Live search
+  search.addEventListener('input', () => {
+    const q = search.value.trim().toLowerCase();
+    let n = 0;
+    rows.forEach(r => {
+      const hit = !q || (r.dataset.search || '').includes(q);
+      r.style.display = hit ? '' : 'none';
+      if (hit) n++;
+    });
+    shown.textContent = n;
+    noResults.style.display = n ? 'none' : 'block';
+  });
+
+  // Password generate + show/hide
+  document.getElementById('pw-gen').addEventListener('click', () => {
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnpqrstuvwxyz23456789!@#$%';
+    let s = ''; for (let i=0;i<14;i++) s += chars[Math.floor(Math.random()*chars.length)];
+    pw.value = s; pw.type = 'text';
+    document.getElementById('pw-show').textContent = 'Hide';
+  });
+  document.getElementById('pw-show').addEventListener('click', () => {
+    const show = pw.type === 'password';
+    pw.type = show ? 'text' : 'password';
+    document.getElementById('pw-show').textContent = show ? 'Hide' : 'Show';
+  });
+})();
+</script>
+{% endraw %}
 {% endblock %}

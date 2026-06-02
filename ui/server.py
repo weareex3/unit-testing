@@ -140,6 +140,10 @@ _restore_feedback_from_approved()
 
 # In-memory run state: scenario_id -> {status, run_id, passed?, error?}
 _ACTIVE_RUNS: dict[str, dict] = {}
+_AGENT_STOP: dict[str, bool] = {"stop": False}
+_AGENT_IO: dict[str, object] = {"answer": None}
+_LAB_LEARNED: dict[str, object] = {"run_id": "", "commands": []}
+_BATCH_AGENT_IO: dict[str, object] = {"answer": None, "decision": None}
 _BATCH_RUNS: dict[str, dict] = {}
 
 # Pause/resume state: scenario_id -> {event, fix}
@@ -370,6 +374,42 @@ def _save_library(data: dict) -> None:
     # Never persist anything that isn't a dict-of-task-dicts.
     LIBRARY_FILE.parent.mkdir(parents=True, exist_ok=True)
     LIBRARY_FILE.write_text(json.dumps(_clean_library(data), indent=2))
+
+
+# ── Canonical, hardcoded core tasks ─────────────────────────────────────────
+# Frozen-correct versions that are restored on every startup if the stored copy
+# is missing or has been corrupted (e.g. a literal name baked in instead of the
+# {{target_employee_name}} placeholder). Guarantees these never silently drift.
+_CANONICAL_PROXY_STEPS = "\n".join([
+    "CLICK_XY: 1226, 26", "WAIT: 2000", "CLICK: Proxy Now", "WAIT: 2000",
+    "CLICK_XY: 639, 360", "WAIT: 1000", "TYPE: {{target_employee_name}}", "WAIT: 4000",
+    "PRESS: ArrowDown", "WAIT: 1000", "PRESS: Enter", "WAIT: 2000", "CLICK: OK", "WAIT: 8000",
+])
+
+
+def _seed_canonical_tasks() -> None:
+    """Ensure hardcoded core tasks exist and are correct. Self-heals a corrupted
+    Proxy task (one missing the {{target_employee_name}} placeholder) but never
+    clobbers a good user-edited version that still uses the placeholder."""
+    try:
+        lib = _load_library()
+        entry = lib.get("Proxy") or {}
+        joined = "\n".join(str(v) for v in (entry.get("steps") or {}).values())
+        if "{{target_employee_name}}" not in joined:
+            lib["Proxy"] = {
+                "description": ("Proxy (impersonate) another SuccessFactors user: open the avatar menu, "
+                                "Proxy Now, type the person's name, select from the dropdown and confirm."),
+                "note": "Canonical proxy task (hardcoded, restored on startup).",
+                "scenario_id": entry.get("scenario_id", "PXY-100"),
+                "steps": {"PXY-100-01": _CANONICAL_PROXY_STEPS},
+                "step_actions": entry.get("step_actions") or ["Proxy as another user"],
+                "step_descriptions": entry.get("step_descriptions") or [],
+                "has_learned_commands": True,
+            }
+            _save_library(lib)
+            print("[seed] restored canonical Proxy task")
+    except Exception as exc:
+        print(f"[seed] error: {exc}")
 
 
 def _load_match_cache() -> dict:
@@ -788,6 +828,13 @@ def _latest_run_id_for_scenario(scenario_id: str) -> str:
     return ""
 
 app = FastAPI(title="EX3 TestOps")
+
+
+@app.on_event("startup")
+def _startup_seed() -> None:
+    _seed_canonical_tasks()
+
+
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
 # Run files (videos/screenshots) are NOT served by an open static mount — they're
 # served by the authenticated, company-scoped /runs/{run_id}/{filename} route below
@@ -2186,7 +2233,7 @@ def api_batch_plan(request: Request, script: str = ""):
     })
 
 
-def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers: dict, user: dict) -> None:
+def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers: dict, user: dict, forced_task: str = "") -> None:
     run_id = f"{batch_id}_{scenario.scenario_id}"
     if scenario.scenario_id in _PAUSE_EVENTS:
         _PAUSE_FIX[scenario.scenario_id] = None
@@ -2284,6 +2331,7 @@ def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers:
         # trained in the same browser session so later scenarios can continue.
         unattended=False,
         run_id_override=run_id,
+        forced_library_task=forced_task,
     )
     latest_approved = ((_load_approved().get(scenario.scenario_id, {}) or {}).get("step_commands", {}) or {})
     latest_feedback = _load_feedback().get(scenario.scenario_id, {}) or {}
@@ -2360,6 +2408,239 @@ def _save_reviewed_task_to_library(scenario, commands: dict, user: dict, run_id:
     return {"ok": True, "task_name": task_name, "steps_saved": len(commands)}
 
 
+def _batch_run_agent(batch_id: str, item: dict, scenario, script: str, answers: dict, user: dict) -> None:
+    """Plan-first Opus task inside Run All:
+      1. Claude drafts a step plan (no browser yet) -> 'agent_plan'; user edits/approves.
+      2. run_plan executes the approved plan (fast replay + per-step vision fallback), streaming live.
+      3. 'agent_review' -> user Saves the (clean, templated) plan to the library, or Skips.
+    The batch continues either way. Library replay is never touched."""
+    from engine.runner import run_plan
+    from engine.coach import get_task_plan
+    try:
+        from engine.runner import substitute
+    except Exception:
+        substitute = None
+    import time as _t, re as _re
+
+    run_id = f"{batch_id}_{scenario.scenario_id}"
+    parts, ctx_lines = [], []
+    for st in scenario.steps:
+        line = st.action
+        if st.test_data and st.test_data not in ("", "—"):
+            line += f" (data: {st.test_data})"
+        parts.append(line)
+        ctx_lines.append(f"- {line}")
+    goal = f"{scenario.name}. " + " Then ".join(p for p in parts if p) + " Do not save."
+    if substitute and answers:
+        try:
+            goal = substitute(goal, answers)
+        except Exception:
+            pass
+    context = "Scenario steps:\n" + "\n".join(ctx_lines)
+
+    from engine.runner import run_agent_goal
+    confidence = int(item.get("confidence") or 0)
+    _BATCH_AGENT_IO.update({"answer": None, "decision": None, "plan": None, "plan_refine": None,
+                            "paused": False, "instruction": None, "choice": None, "confirm": None})
+    _AGENT_STOP["stop"] = False
+
+    # Shared run plumbing (used by both the 'attempt' and 'guided' paths)
+    step_log_file = RUNS_DIR / f"{scenario.scenario_id}_last_run.json"
+    steps_log: list[dict] = []
+    agent_answers: list[tuple[str, str]] = []
+
+    def _write(status: str):
+        try:
+            step_log_file.parent.mkdir(parents=True, exist_ok=True)
+            step_log_file.write_text(json.dumps({"run_id": run_id, "scenario_id": scenario.scenario_id,
+                                                  "status": status, "steps": steps_log}, indent=2))
+        except Exception:
+            pass
+
+    def _step_done(step_id, passed, error, screenshot_url):
+        steps_log.append({"step_id": step_id, "passed": passed, "error": error or "", "screenshot_url": screenshot_url or ""})
+        item["steps_logged"] = len(steps_log)
+        item["current_step"] = step_id
+        _write("running")
+
+    def _ask_user(question: str, screenshot_url: str):
+        _BATCH_AGENT_IO["answer"] = None
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "waiting_input", "run_id": run_id, "user": user,
+            "script": script, "question": question, "screenshot_url": screenshot_url}
+        w = 0.0
+        while _BATCH_AGENT_IO.get("answer") is None:
+            if _AGENT_STOP.get("stop"):
+                return None
+            _t.sleep(0.5); w += 0.5
+            if w > 1800:
+                return None
+        ans = _BATCH_AGENT_IO.get("answer")
+        _BATCH_AGENT_IO["answer"] = None
+        if ans:
+            agent_answers.append((question, str(ans)))
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_running", "run_id": run_id, "user": user, "script": script}
+        return ans
+
+    def _take_instruction():
+        instr = _BATCH_AGENT_IO.get("instruction")
+        _BATCH_AGENT_IO["instruction"] = None
+        return instr
+
+    def _confirm_step(reasoning, cmds, screenshot_url):
+        _BATCH_AGENT_IO["confirm"] = None
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "awaiting_confirm", "run_id": run_id, "user": user,
+            "script": script, "reasoning": reasoning, "commands": cmds, "screenshot_url": screenshot_url}
+        w = 0.0
+        while _BATCH_AGENT_IO.get("confirm") is None:
+            if _AGENT_STOP.get("stop"):
+                return {"action": "stop"}
+            _t.sleep(0.5); w += 0.5
+            if w > 1800:
+                return {"action": "stop"}
+        d = _BATCH_AGENT_IO.get("confirm") or {}
+        _BATCH_AGENT_IO["confirm"] = None
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_running", "run_id": run_id, "user": user, "script": script}
+        return d
+
+    def _confirm_done():
+        _BATCH_AGENT_IO["done"] = None
+        last = steps_log[-1]["screenshot_url"] if steps_log else ""
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_confirm_done", "run_id": run_id, "user": user,
+            "script": script, "screenshot_url": last}
+        w = 0.0
+        while _BATCH_AGENT_IO.get("done") is None:
+            if _AGENT_STOP.get("stop"):
+                return {"action": "finish"}
+            _t.sleep(0.5); w += 0.5
+            if w > 1800:
+                return {"action": "finish"}
+        d = _BATCH_AGENT_IO.get("done") or {}
+        _BATCH_AGENT_IO["done"] = None
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_running", "run_id": run_id, "user": user, "script": script}
+        return d
+
+    def _finish(status):
+        item["status"] = status
+        item["ended_at"] = _utc_now()
+        _write("done")
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "done", "run_id": run_id,
+            "passed": status == "passed", "user": user, "script": script}
+
+    item.update({"status": "agent_choose", "run_id": run_id, "started_at": _utc_now(),
+                 "error": "", "mode": "opus", "trained_to_library": False, "steps_logged": 0,
+                 "plan_chat": [], "confidence": confidence})
+
+    # ── Phase 0: CHOICE — how should Claude handle this unsaved task?
+    recommended = "attempt" if confidence >= 20 else "guided"
+    _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_choose", "run_id": run_id, "user": user,
+        "script": script, "confidence": confidence, "recommended": recommended}
+    waited = 0.0
+    while _BATCH_AGENT_IO.get("choice") is None:
+        if _AGENT_STOP.get("stop"):
+            break
+        _t.sleep(0.5); waited += 0.5
+        if waited > 3600:
+            break
+    choice = (_BATCH_AGENT_IO.get("choice") or "skip")
+    _BATCH_AGENT_IO["choice"] = None
+    if choice == "skip" or _AGENT_STOP.get("stop"):
+        _finish("skipped")
+        return
+
+    learned_lines: list[str] = []
+
+    if choice == "attempt":
+        # ── Conversational plan: draft -> user guides in plain English -> run
+        guidance: list[str] = []
+        item["status"] = "agent_planning"
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_planning", "run_id": run_id, "user": user, "script": script}
+        plan = get_task_plan(goal, context, preview=True) or []
+        item["plan"] = plan
+        item["status"] = "agent_plan"
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_plan", "run_id": run_id, "user": user, "script": script}
+        waited = 0.0
+        while True:
+            if _AGENT_STOP.get("stop"):
+                plan_decision = {"action": "skip"}; break
+            refine = _BATCH_AGENT_IO.get("plan_refine")
+            if refine:
+                _BATCH_AGENT_IO["plan_refine"] = None
+                guidance.append(str(refine)); item.setdefault("plan_chat", []).append(str(refine))
+                item["status"] = "agent_planning"
+                _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_planning", "run_id": run_id, "user": user, "script": script}
+                plan = get_task_plan(goal, context, preview=True, guidance=guidance) or plan
+                item["plan"] = plan; item["status"] = "agent_plan"
+                _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_plan", "run_id": run_id, "user": user, "script": script}
+                waited = 0.0; continue
+            if _BATCH_AGENT_IO.get("plan") is not None:
+                plan_decision = _BATCH_AGENT_IO.get("plan"); _BATCH_AGENT_IO["plan"] = None; break
+            _t.sleep(0.5); waited += 0.5
+            if waited > 3600:
+                plan_decision = {"action": "skip"}; break
+        approved_steps = [s for s in (plan or []) if s.get("cmd")]
+        if (plan_decision.get("action") != "run") or not approved_steps:
+            _finish("skipped"); return
+        item["plan"] = approved_steps
+        _write("running"); item["status"] = "agent_running"
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_running", "run_id": run_id, "user": user, "script": script}
+        run_plan(approved_steps, answers=dict(answers or {}), preview=True, runs_root=RUNS_DIR,
+                 run_id_override=run_id, step_done_callback=_step_done, ask_user=_ask_user,
+                 check_stop=lambda: _AGENT_STOP.get("stop"),
+                 is_paused=lambda: _BATCH_AGENT_IO.get("paused"), take_instruction=_take_instruction)
+        learned_lines = [s.get("cmd", "") for s in approved_steps if s.get("cmd")]
+    else:
+        # ── Guided: confirm each move (step-by-step) before it happens
+        _write("running"); item["status"] = "agent_running"
+        _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_running", "run_id": run_id, "user": user, "script": script}
+        result = run_agent_goal(goal, preview=True, runs_root=RUNS_DIR, run_id_override=run_id,
+                                step_done_callback=_step_done, max_iters=30,
+                                check_stop=lambda: _AGENT_STOP.get("stop"),
+                                ask_user=_ask_user, confirm_step=_confirm_step, confirm_done=_confirm_done)
+        learned_lines = list(getattr(result, "agent_commands", []) or [])
+
+    videos = sorted((RUNS_DIR / run_id).glob("*.webm"))
+    item["video_url"] = f"/runs/{run_id}/{videos[0].name}" if videos else ""
+    last_shot = steps_log[-1]["screenshot_url"] if steps_log else ""
+
+    # ── Review -> Save (-> goes GREEN next time) or Skip; batch continues either way
+    _write("review")
+    item["status"] = "agent_review"
+    _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_review", "run_id": run_id, "user": user,
+        "script": script, "video_url": item["video_url"], "screenshot_url": last_shot}
+    waited = 0.0
+    while _BATCH_AGENT_IO.get("decision") is None:
+        if _AGENT_STOP.get("stop"):
+            break
+        _t.sleep(0.5); waited += 0.5
+        if waited > 1800:
+            break
+    decision = _BATCH_AGENT_IO.get("decision") or {}
+    _BATCH_AGENT_IO["decision"] = None
+    action = (decision.get("action") if isinstance(decision, dict) else str(decision)) or "skip"
+
+    if action == "save" and learned_lines and scenario.steps:
+        joined = "\n".join(l for l in learned_lines if l)
+        for var, val in (answers or {}).items():
+            if val:
+                joined = _re.sub(_re.escape(str(val)), "{{" + var + "}}", joined, flags=_re.IGNORECASE)
+        for q, a in agent_answers:
+            if a and any(w in q.lower() for w in ("who", "proxy", "employee", "target", "person", "name")):
+                joined = _re.sub(_re.escape(a), "{{target_employee_name}}", joined, flags=_re.IGNORECASE)
+        commands = {scenario.steps[0].step_id: joined}
+        for st in scenario.steps[1:]:
+            commands[st.step_id] = "WAIT: 500"
+        task_name = (decision.get("task_name") if isinstance(decision, dict) else "") or scenario.name
+        try:
+            _save_reviewed_task_to_library(scenario, commands, user, run_id, task_name=task_name,
+                note="Learned via Run All (Claude), approved by the user.")
+            item["trained_to_library"] = True
+        except Exception as exc:
+            item["error"] = f"save failed: {exc}"
+        _finish("passed")
+    else:
+        _finish("skipped")
+
+
 @app.post("/api/batch/start")
 async def api_batch_start(request: Request):
     try:
@@ -2368,6 +2649,9 @@ async def api_batch_start(request: Request):
         body = {}
     script = str(body.get("script", "")).strip()
     answers = body.get("answers") if isinstance(body.get("answers"), dict) else {}
+    modes = body.get("modes") if isinstance(body.get("modes"), dict) else {}
+    lib_tasks = body.get("lib_tasks") if isinstance(body.get("lib_tasks"), dict) else {}
+    confidences = body.get("confidences") if isinstance(body.get("confidences"), dict) else {}
     scenarios = _load_scenarios(script or None)
     if not script or not scenarios:
         return JSONResponse({"ok": False, "error": "Select a script before running all."}, status_code=400)
@@ -2386,6 +2670,7 @@ async def api_batch_start(request: Request):
             "run_id": "",
             "video_url": "",
             "error": "",
+            "confidence": int(confidences.get(s.scenario_id, 0) or 0),
         }
         for s in scenarios
     ]
@@ -2407,8 +2692,15 @@ async def api_batch_start(request: Request):
             for index, scenario in enumerate(scenarios):
                 batch["current_index"] = index
                 item = batch["items"][index]
-                _batch_run_record(batch_id, item, scenario, script, answers, user)
-                if item["status"] != "passed":
+                mode = str(modes.get(scenario.scenario_id, "library")).lower()
+                if mode == "opus":
+                    _batch_run_agent(batch_id, item, scenario, script, answers, user)
+                else:
+                    _batch_run_record(batch_id, item, scenario, script, answers, user,
+                                      forced_task=str(lib_tasks.get(scenario.scenario_id, "")))
+                # Opus 'skipped' and library 'passed' both continue the run; anything
+                # else (failed/needs training) stops the batch as before.
+                if item["status"] not in ("passed", "skipped"):
                     batch["status"] = "needs_training"
                     batch["ended_at"] = _utc_now()
                     return
@@ -2423,6 +2715,113 @@ async def api_batch_start(request: Request):
     return JSONResponse({"ok": True, "batch_id": batch_id})
 
 
+@app.post("/api/batch/agent/answer")
+async def api_batch_agent_answer(request: Request):
+    """Live who/what answer for an Opus scenario inside Run All."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ans = str(body.get("answer", "")).strip()
+    if not ans:
+        return JSONResponse({"ok": False, "error": "Type an answer first."}, status_code=400)
+    _BATCH_AGENT_IO["answer"] = ans
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/batch/agent/control")
+async def api_batch_agent_control(request: Request):
+    """Live control of a running Opus task: pause / resume / stop / instruct."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str(body.get("action", "")).strip().lower()
+    if action == "pause":
+        _BATCH_AGENT_IO["paused"] = True
+    elif action == "resume":
+        _BATCH_AGENT_IO["paused"] = False
+    elif action == "stop":
+        _AGENT_STOP["stop"] = True
+        _BATCH_AGENT_IO["paused"] = False
+    elif action == "instruct":
+        text = str(body.get("text", "")).strip()
+        if text:
+            _BATCH_AGENT_IO["instruction"] = text
+            _BATCH_AGENT_IO["paused"] = True
+    return JSONResponse({"ok": True, "paused": bool(_BATCH_AGENT_IO.get("paused"))})
+
+
+@app.post("/api/batch/agent/plan")
+async def api_batch_agent_plan(request: Request):
+    """Approve (with edits) or skip the drafted plan for an Opus scenario."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str(body.get("action", "skip")).strip().lower()
+    if action == "refine":
+        # Plain-English guidance — Claude redraws the plan (handled by the run thread).
+        msg = str(body.get("message", "")).strip()
+        if msg:
+            _BATCH_AGENT_IO["plan_refine"] = msg
+        return JSONResponse({"ok": True})
+    _BATCH_AGENT_IO["plan"] = {"action": "run" if action == "run" else "skip"}
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/batch/agent/choice")
+async def api_batch_agent_choice(request: Request):
+    """At an unsaved task: let Claude attempt it, guide it step-by-step, or skip."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    c = str(body.get("choice", "")).strip().lower()
+    _BATCH_AGENT_IO["choice"] = c if c in ("attempt", "guided", "skip") else "skip"
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/batch/agent/confirm")
+async def api_batch_agent_confirm(request: Request):
+    """Confirm-each-move (guided) inside Run All: Confirm / Redirect / Stop."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str(body.get("action", "confirm")).strip().lower()
+    if action not in ("confirm", "redirect", "stop"):
+        action = "confirm"
+    _BATCH_AGENT_IO["confirm"] = {"action": action, "text": str(body.get("text", "")).strip()}
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/batch/agent/done")
+async def api_batch_agent_done(request: Request):
+    """Completion check: Claude thinks it's finished — user says finish, or keep going."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str(body.get("action", "finish")).strip().lower()
+    _BATCH_AGENT_IO["done"] = {"action": "continue" if action == "continue" else "finish",
+                              "text": str(body.get("text", "")).strip()}
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/batch/agent/decision")
+async def api_batch_agent_decision(request: Request):
+    """Save (-> library) or Skip an Opus scenario after review; batch then continues."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str(body.get("action", "skip")).strip().lower()
+    _BATCH_AGENT_IO["decision"] = {"action": "save" if action == "save" else "skip",
+                                   "task_name": str(body.get("task_name", "")).strip()}
+    return JSONResponse({"ok": True})
+
+
 @app.get("/api/batch/{batch_id}")
 def api_batch_status(batch_id: str):
     batch = _BATCH_RUNS.get(batch_id)
@@ -2430,10 +2829,22 @@ def api_batch_status(batch_id: str):
         return JSONResponse({"ok": False, "error": "Batch not found"}, status_code=404)
     for item in batch.get("items", []):
         active = _ACTIVE_RUNS.get(item.get("scenario_id", ""), {})
-        if active.get("run_id") == item.get("run_id") and active.get("status") in ("paused", "confirming"):
+        if active.get("run_id") != item.get("run_id"):
+            continue
+        if active.get("status") in ("paused", "confirming"):
             item["status"] = active["status"]
             item["paused_step"] = active.get("paused_step") or active.get("confirming_step", "")
             item["screenshot_url"] = active.get("screenshot_url", "")
+        elif active.get("status") in ("agent_choose", "agent_planning", "agent_plan", "agent_running",
+                                      "waiting_input", "awaiting_confirm", "agent_confirm_done", "agent_review"):
+            item["status"] = active["status"]
+            item["question"] = active.get("question", "")
+            item["screenshot_url"] = active.get("screenshot_url", "")
+            item["recommended"] = active.get("recommended", "")
+            item["reasoning"] = active.get("reasoning", "")
+            item["commands"] = active.get("commands", "")
+            if active.get("video_url"):
+                item["video_url"] = active["video_url"]
     return JSONResponse({"ok": True, "batch": batch})
 
 
@@ -2600,7 +3011,15 @@ def showreel(request: Request):
     user = _current_user(request)
     if not _role_at_least(user.get("role", "viewer"), "owner"):
         return HTMLResponse("Not found", status_code=404)
-    return HTMLResponse(_SHOWREEL_HTML)
+    return templates.TemplateResponse(
+        request=request,
+        name="showreel.html",
+        context={
+            "client_id": CLIENT_ID,
+            "current_user": user,
+            "active": "dashboard",
+        },
+    )
 
 
 @app.get("/batch", response_class=HTMLResponse)
@@ -2644,12 +3063,18 @@ async def api_lab_run(request: Request):
     except Exception:
         body = {}
     goal = str(body.get("goal", "")).strip()
+    confirm_mode = bool(body.get("confirm"))
+    grounding_mode = bool(body.get("grounding"))
     if not goal:
         return JSONResponse({"ok": False, "error": "Describe what to do first."}, status_code=400)
-    if _ACTIVE_RUNS.get("agent", {}).get("status") == "running":
+    if _ACTIVE_RUNS.get("agent", {}).get("status") in ("running", "awaiting_confirm", "waiting_input"):
         return JSONResponse({"ok": False, "error": "An agent run is already in progress."}, status_code=409)
     user = _current_user(request)
     run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+    _AGENT_STOP["stop"] = False
+    _AGENT_IO["confirm"] = None
+    _LAB_LEARNED["run_id"] = run_id
+    _LAB_LEARNED["commands"] = []
     _ACTIVE_RUNS["agent"] = {"status": "running", "run_id": run_id, "user": user, "goal": goal}
     log_file = RUNS_DIR / "agent_last_run.json"
     steps_log: list[dict] = []
@@ -2666,18 +3091,127 @@ async def api_lab_run(request: Request):
 
     _write("running")
 
+    def _ask_user(question: str, screenshot_url: str):
+        """Block the agent thread, surface a who/what question to the UI, wait for
+        the user's live answer. Returns None if the run is stopped or times out."""
+        import time as _t
+        _AGENT_IO["answer"] = None
+        _ACTIVE_RUNS["agent"] = {"status": "waiting_input", "run_id": run_id, "user": user,
+                                 "goal": goal, "question": question, "screenshot_url": screenshot_url}
+        waited = 0.0
+        while _AGENT_IO.get("answer") is None:
+            if _AGENT_STOP.get("stop"):
+                return None
+            _t.sleep(0.5)
+            waited += 0.5
+            if waited > 600:  # 10-minute safety timeout
+                return None
+        ans = _AGENT_IO.get("answer")
+        _AGENT_IO["answer"] = None
+        _ACTIVE_RUNS["agent"] = {"status": "running", "run_id": run_id, "user": user, "goal": goal}
+        return ans
+
+    def _confirm_step(reasoning: str, cmds: str, screenshot_url: str):
+        """Confirm-each-move training: surface the proposed move, wait for the user
+        to Confirm / Redirect / Stop. Returns the decision dict."""
+        import time as _t
+        _AGENT_IO["confirm"] = None
+        _ACTIVE_RUNS["agent"] = {"status": "awaiting_confirm", "run_id": run_id, "user": user, "goal": goal,
+                                 "reasoning": reasoning, "commands": cmds, "screenshot_url": screenshot_url}
+        waited = 0.0
+        while _AGENT_IO.get("confirm") is None:
+            if _AGENT_STOP.get("stop"):
+                return {"action": "stop"}
+            _t.sleep(0.5); waited += 0.5
+            if waited > 1800:
+                return {"action": "stop"}
+        d = _AGENT_IO.get("confirm") or {}
+        _AGENT_IO["confirm"] = None
+        _ACTIVE_RUNS["agent"] = {"status": "running", "run_id": run_id, "user": user, "goal": goal}
+        return d
+
     def _run():
         try:
             result = run_agent_goal(goal, preview=True, runs_root=RUNS_DIR, run_id_override=run_id,
-                                    step_done_callback=_step_done, max_iters=25)
+                                    step_done_callback=_step_done, max_iters=25,
+                                    check_stop=lambda: _AGENT_STOP.get("stop"),
+                                    ask_user=_ask_user,
+                                    confirm_step=_confirm_step if confirm_mode else None,
+                                    grounding=grounding_mode)
+            _LAB_LEARNED["commands"] = list(getattr(result, "agent_commands", []) or [])
             _write("done")
-            _ACTIVE_RUNS["agent"] = {"status": "done", "run_id": run_id, "passed": result.passed, "user": user}
+            _ACTIVE_RUNS["agent"] = {"status": "done", "run_id": run_id, "passed": result.passed,
+                                     "user": user, "learned": len(_LAB_LEARNED["commands"])}
         except Exception as exc:
             _write("error")
             _ACTIVE_RUNS["agent"] = {"status": "error", "run_id": run_id, "error": str(exc), "user": user}
 
     threading.Thread(target=_run, daemon=True).start()
     return JSONResponse({"ok": True, "run_id": run_id})
+
+
+@app.post("/api/lab/stop")
+async def api_lab_stop(request: Request):
+    """Signal the running agent to halt at its next iteration boundary."""
+    _AGENT_STOP["stop"] = True
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/lab/answer")
+async def api_lab_answer(request: Request):
+    """Live who/what answer: feed the user's value back to the waiting agent."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    ans = str(body.get("answer", "")).strip()
+    if not ans:
+        return JSONResponse({"ok": False, "error": "Type an answer first."}, status_code=400)
+    _AGENT_IO["answer"] = ans
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/lab/confirm")
+async def api_lab_confirm(request: Request):
+    """Confirm-each-move training: Confirm the proposed move, Redirect it in plain
+    English, or Stop."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    action = str(body.get("action", "confirm")).strip().lower()
+    if action not in ("confirm", "redirect", "stop"):
+        action = "confirm"
+    _AGENT_IO["confirm"] = {"action": action, "text": str(body.get("text", "")).strip()}
+    return JSONResponse({"ok": True})
+
+
+@app.post("/api/lab/save")
+async def api_lab_save(request: Request):
+    """Save the moves Claude just performed (this Hub session) as a reusable library task."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    task_name = str(body.get("task_name", "")).strip()
+    if not task_name:
+        return JSONResponse({"ok": False, "error": "Name the task first."}, status_code=400)
+    cmds = list(_LAB_LEARNED.get("commands") or [])
+    if not cmds:
+        return JSONResponse({"ok": False, "error": "No confirmed moves to save yet."}, status_code=400)
+    data = _load_library()
+    data[task_name] = {
+        "description": f"Trained in the Testing Hub (confirm-each-move): {task_name}.",
+        "note": "Learned via step-by-step confirm training.",
+        "scenario_id": "",
+        "steps": {"step-1": "\n".join(cmds)},
+        "step_actions": [task_name],
+        "step_descriptions": [],
+        "has_learned_commands": True,
+    }
+    _save_library(data)
+    threading.Thread(target=_git_push_library, daemon=True).start()
+    return JSONResponse({"ok": True, "task_name": task_name, "moves": len(cmds)})
 
 
 @app.get("/api/lab/video/{run_id}")
@@ -4267,6 +4801,30 @@ def add_to_library(
     _save_library(data)
     threading.Thread(target=_git_push_library, daemon=True).start()
     return JSONResponse({"ok": True, "learned": learned})
+
+
+@app.post("/api/library/{task_name}/steps")
+async def set_library_task_steps(task_name: str, request: Request):
+    """Repair/replace a saved task's step commands directly (e.g. fix a corrupted
+    task or swap a baked-in value back to a {{placeholder}})."""
+    try:
+        body = await request.json()
+    except Exception:
+        body = {}
+    steps = body.get("steps")
+    if not isinstance(steps, dict) or not steps:
+        return JSONResponse({"ok": False, "error": "steps object required"}, status_code=400)
+    data = _load_library()
+    entry = data.get(task_name) or {"description": "", "note": "", "scenario_id": "",
+                                    "steps": {}, "step_actions": [], "step_descriptions": []}
+    entry["steps"] = {str(k): str(v) for k, v in steps.items()}
+    entry["has_learned_commands"] = True
+    if body.get("description"):
+        entry["description"] = str(body["description"])
+    data[task_name] = entry
+    _save_library(data)
+    threading.Thread(target=_git_push_library, daemon=True).start()
+    return JSONResponse({"ok": True, "task_name": task_name, "steps": len(steps)})
 
 
 @app.delete("/api/library/{task_name}")

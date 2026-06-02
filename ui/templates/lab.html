@@ -29,13 +29,51 @@
       <textarea id="lab-goal" class="input" rows="3" style="resize:vertical;margin-bottom:14px;"
         placeholder="e.g. Proxy as Esther Loh, then go to her Job Information"></textarea>
 
+      <label style="display:block;margin-bottom:8px;font-size:13px;color:var(--ink);cursor:pointer;">
+        <input type="checkbox" id="lab-confirm-mode" style="vertical-align:middle;margin-right:6px;"> Step-by-step — Claude proposes each move and waits for you to confirm or redirect <span style="color:var(--muted);">(training)</span>
+      </label>
+      <label style="display:block;margin-bottom:12px;font-size:13px;color:var(--ink);cursor:pointer;">
+        <input type="checkbox" id="lab-grounding" style="vertical-align:middle;margin-right:6px;"> Precision targeting <span style="color:var(--muted);">(set-of-marks — numbers every clickable so it picks the right one instead of guessing pixels)</span>
+      </label>
       <button id="lab-run" class="btn btn-primary" type="button" style="min-height:42px;">▶ Let Claude do it (preview, no save)</button>
+      <button id="lab-stop" class="btn btn-danger" type="button" style="min-height:42px;display:none;margin-left:8px;">■ Stop</button>
       <span id="lab-status" style="margin-left:12px;font-size:13px;color:var(--muted);"></span>
+
+      <style>@keyframes labpulse{0%,100%{opacity:1}50%{opacity:.45}}</style>
+      <div id="lab-ask" style="display:none;margin-top:16px;padding:16px;border-radius:12px;border:2px solid #d97706;background:#fff7ed;">
+        <div id="lab-ask-q" style="font-size:15px;font-weight:800;color:#b45309;margin-bottom:10px;animation:labpulse 1.2s ease-in-out infinite;"></div>
+        <img id="lab-ask-img" style="width:100%;border-radius:10px;border:1px solid var(--line);margin-bottom:10px;display:none;" />
+        <div style="display:flex;gap:8px;">
+          <input id="lab-ask-input" class="input" type="text" placeholder="Type your answer…" style="flex:1;" />
+          <button id="lab-ask-send" class="btn btn-primary" type="button">Send</button>
+        </div>
+      </div>
+
+      <div id="lab-confirm" style="display:none;margin-top:16px;padding:16px;border-radius:12px;border:2px solid #2563eb;background:#eff6ff;">
+        <div style="font-size:11px;font-weight:850;color:#1d4ed8;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Claude wants to do this — your call</div>
+        <div id="lab-confirm-reason" style="font-size:14px;color:var(--ink);margin-bottom:8px;font-weight:600;"></div>
+        <div id="lab-confirm-cmd" style="font-family:monospace;font-size:11px;color:#475569;background:rgba(0,0,0,.04);border-radius:8px;padding:8px 10px;margin-bottom:10px;white-space:pre-wrap;"></div>
+        <img id="lab-confirm-img" style="width:100%;border-radius:10px;border:1px solid var(--line);margin-bottom:10px;display:none;" />
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button id="lab-confirm-yes" class="btn btn-primary" type="button">✓ Confirm &amp; do it</button>
+          <input id="lab-confirm-redirect" class="input" type="text" placeholder="…or tell it a better idea" style="flex:1;min-width:200px;" />
+          <button id="lab-confirm-send" class="btn" type="button">Redirect</button>
+        </div>
+      </div>
 
       <div id="lab-result" style="display:none;margin-top:20px;">
         <div class="section-label" style="margin-bottom:8px;">Claude's moves</div>
         <div id="lab-steps" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
         <video id="lab-video" controls style="display:none;width:100%;border-radius:12px;background:#11100e;"></video>
+      </div>
+
+      <div id="lab-save" style="display:none;margin-top:16px;padding:16px;border-radius:12px;border:1px solid var(--line);background:rgba(0,0,0,.02);">
+        <div style="font-size:13px;color:var(--ink);margin-bottom:8px;font-weight:600;">Happy with it? Save these confirmed moves as a reusable task.</div>
+        <div style="display:flex;gap:8px;margin-bottom:6px;">
+          <input id="lab-save-name" class="input" type="text" placeholder="Task name (e.g. Edit Address)" style="flex:1;" />
+          <button id="lab-save-btn" class="btn btn-primary" type="button">Save to library</button>
+        </div>
+        <span id="lab-save-status" style="font-size:12px;color:var(--muted);"></span>
       </div>
     </div>
     <p style="font-size:12px;color:var(--muted);margin-top:12px;">
@@ -49,30 +87,92 @@
 <script>
 (function(){
   const btn = document.getElementById('lab-run');
+  const stopBtn = document.getElementById('lab-stop');
   const status = document.getElementById('lab-status');
+  const askPanel = document.getElementById('lab-ask');
+  const askQ = document.getElementById('lab-ask-q');
+  const askImg = document.getElementById('lab-ask-img');
+  const askInput = document.getElementById('lab-ask-input');
+  const askSend = document.getElementById('lab-ask-send');
+
+  async function sendAnswer(){
+    const v = askInput.value.trim();
+    if (!v) return;
+    askSend.disabled = true;
+    awaitingResume = true;
+    try {
+      await fetch('/api/lab/answer', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({answer:v})});
+    } catch(e){}
+    askInput.value = '';
+    askPanel.style.display = 'none';
+    status.textContent = 'Got it — continuing…';
+  }
+  askSend.addEventListener('click', sendAnswer);
+  askInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendAnswer(); });
   const result = document.getElementById('lab-result');
   const stepsBox = document.getElementById('lab-steps');
   const video = document.getElementById('lab-video');
-  let poll = null, runId = null;
+  const confirmMode = document.getElementById('lab-confirm-mode');
+  const groundingMode = document.getElementById('lab-grounding');
+  const cfPanel = document.getElementById('lab-confirm');
+  const cfReason = document.getElementById('lab-confirm-reason');
+  const cfCmd = document.getElementById('lab-confirm-cmd');
+  const cfImg = document.getElementById('lab-confirm-img');
+  const cfYes = document.getElementById('lab-confirm-yes');
+  const cfRedirect = document.getElementById('lab-confirm-redirect');
+  const cfSend = document.getElementById('lab-confirm-send');
+  const savePanel = document.getElementById('lab-save');
+  let poll = null, runId = null, awaitingResume = false, cfResume = false;
+
+  async function sendConfirm(action, text){
+    cfResume = true;
+    cfPanel.style.display = 'none';
+    status.textContent = action === 'redirect' ? 'Rethinking…' : 'Doing it…';
+    try { await fetch('/api/lab/confirm', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action, text: text||''})}); } catch(e){}
+  }
+  cfYes.addEventListener('click', () => sendConfirm('confirm'));
+  cfSend.addEventListener('click', () => { const t = cfRedirect.value.trim(); if(!t) return; cfRedirect.value=''; sendConfirm('redirect', t); });
+  cfRedirect.addEventListener('keydown', e => { if (e.key === 'Enter') cfSend.click(); });
+
+  document.getElementById('lab-save-btn').addEventListener('click', async () => {
+    const name = document.getElementById('lab-save-name').value.trim();
+    const ss = document.getElementById('lab-save-status');
+    if (!name) { ss.textContent = 'Name the task first.'; return; }
+    ss.textContent = 'Saving…';
+    try {
+      const r = await (await fetch('/api/lab/save', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({task_name:name})})).json();
+      ss.textContent = r.ok ? `Saved "${r.task_name}" (${r.moves} moves) to the library.` : (r.error || 'Save failed');
+    } catch(e){ ss.textContent = 'Save failed'; }
+  });
 
   btn.addEventListener('click', async () => {
     const goal = document.getElementById('lab-goal').value.trim();
     if (!goal) { status.textContent = 'Type what you want it to do first.'; return; }
     btn.disabled = true;
+    stopBtn.style.display = 'inline-flex';
+    stopBtn.disabled = false;
     result.style.display = 'block';
+    savePanel.style.display = 'none';
+    cfResume = false;
     stepsBox.innerHTML = '<div style="font-size:13px;color:#9a948a;">Logging in and reading the screen…</div>';
     video.style.display = 'none';
     status.textContent = 'Claude is working…';
     try {
       const res = await fetch('/api/lab/run', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({goal})
+        body: JSON.stringify({goal, confirm: confirmMode.checked, grounding: groundingMode.checked})
       });
       const d = await res.json();
-      if (!d.ok) { status.textContent = d.error || 'Could not start'; btn.disabled = false; return; }
+      if (!d.ok) { status.textContent = d.error || 'Could not start'; btn.disabled = false; stopBtn.style.display = 'none'; return; }
       runId = d.run_id;
       poll = setInterval(pollStatus, 2500);
-    } catch (e) { status.textContent = 'Failed to start'; btn.disabled = false; }
+    } catch (e) { status.textContent = 'Failed to start'; btn.disabled = false; stopBtn.style.display = 'none'; }
+  });
+
+  stopBtn.addEventListener('click', async () => {
+    stopBtn.disabled = true;
+    status.textContent = 'Stopping… (finishing current move)';
+    try { await fetch('/api/lab/stop', { method: 'POST' }); } catch (e) {}
   });
 
   async function pollStatus(){
@@ -90,13 +190,35 @@
             ${st.screenshot_url ? `<img src="${st.screenshot_url}" style="width:100%;display:block;border-top:1px solid var(--line);" loading="lazy" />` : ''}
           </div>`).join('');
       }
+      if (s.status === 'waiting_input' && !awaitingResume) {
+        askQ.textContent = s.question || 'What should I enter here?';
+        if (s.screenshot_url) { askImg.src = s.screenshot_url; askImg.style.display = 'block'; }
+        else { askImg.style.display = 'none'; }
+        askSend.disabled = false;
+        askPanel.style.display = 'block';
+        askInput.focus();
+        status.textContent = 'Claude needs your input…';
+      } else if (s.status === 'awaiting_confirm' && !cfResume) {
+        cfReason.textContent = s.reasoning || 'Next move';
+        cfCmd.textContent = s.commands || '';
+        if (s.screenshot_url) { cfImg.src = s.screenshot_url; cfImg.style.display = 'block'; }
+        else { cfImg.style.display = 'none'; }
+        cfPanel.style.display = 'block';
+        status.textContent = 'Waiting for your confirmation…';
+      } else if (s.status === 'running') {
+        awaitingResume = false; cfResume = false;
+        if (askPanel.style.display !== 'none') askPanel.style.display = 'none';
+        if (cfPanel.style.display !== 'none') cfPanel.style.display = 'none';
+      }
       if (s.status === 'done' || s.status === 'error') {
-        clearInterval(poll); btn.disabled = false;
+        clearInterval(poll); btn.disabled = false; stopBtn.style.display = 'none';
+        askPanel.style.display = 'none'; cfPanel.style.display = 'none';
         status.textContent = s.status === 'done' ? 'Done.' : ('Stopped: ' + (s.error || 'agent stopped'));
         if (runId) {
           const v = await (await fetch('/api/lab/video/' + encodeURIComponent(runId))).json().catch(()=>({}));
           if (v && v.video_url) { video.src = v.video_url; video.style.display = 'block'; }
         }
+        if (s.status === 'done' && (s.learned || 0) > 0) savePanel.style.display = 'block';
       }
     } catch(e){}
   }
