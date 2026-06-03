@@ -2284,6 +2284,23 @@ def _coverage_for_scenario(scenario, library: dict) -> dict:
             }
     except Exception as exc:
         print(f"[coverage] error: {exc}")
+    # Deterministic fallback — if the AI didn't match (or errored), surface an obvious
+    # name/intent overlap so a task like "edit address" reliably matches an
+    # "Edit employee address" scenario instead of silently showing "no match".
+    if not out["matched_task"]:
+        import re as _re
+        _stop = {"the", "a", "an", "to", "and", "or", "of", "in", "on", "for", "employee",
+                 "employees", "user", "users", "this", "their", "with", "into"}
+        def _sig(t):
+            return {w for w in _re.findall(r"[a-z]+", (t or "").lower()) if len(w) > 2 and w not in _stop}
+        scen_words = _sig(getattr(scenario, "name", "") + " " + " ".join(st.action for st in scenario.steps))
+        for n, e in tasks.items():
+            nm = _sig(n)
+            if nm and nm.issubset(scen_words):
+                out["matched_task"] = n
+                out["reason"] = "Matches a saved task by name/intent."
+                out["coverage"] = {st.step_id: True for st in scenario.steps}
+                break
     return out
 
 
