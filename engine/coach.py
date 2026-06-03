@@ -428,10 +428,10 @@ KEY SUCCESSFACTORS NAVIGATION (use these known paths):
   the token {{{{today}}}} (it auto-fills the current date at run time), never a fixed/future date.
 
 RULES:
-- Prefer STABLE TEXT targets, not coordinates. Use the placeholder {{target_employee_name}} for the
+- Prefer STABLE TEXT targets, not coordinates. Use the placeholder {{{{target_employee_name}}}} for the
   person — NEVER invent a real name.
 - NEVER invent example data. Do NOT make up addresses, dates, values, or field contents. If the task
-  doesn't give an explicit value, use a {{placeholder}} (e.g. {{address_line_2}}) so the user is asked
+  doesn't give an explicit value, use a {{{{placeholder}}}} (e.g. {{{{address_line_2}}}}) so the user is asked
   at run time — never a fake like "123 Example Street".
 - Follow the task's SPECIFIC intent and data exactly: the right field, the exact change requested
   (e.g. if it says append "0" to Address Line 2, the step is to edit Address Line 2, not Line 1).

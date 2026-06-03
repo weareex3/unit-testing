@@ -1806,9 +1806,12 @@ def run_plan(plan, answers=None, preview=True, runs_root="runs", run_id_override
                     break
                 desc = (st.get("desc") or st.get("cmd") or "").strip()
                 cmd = st.get("cmd", "")
+                # Normalise single-brace {var} to {{var}} so a stray planner token still
+                # gets substituted/asked (defensive — the planner now emits double braces).
+                cmd = _re.sub(r"(?<!\{)\{\s*([A-Za-z_][\w]*)\s*\}(?!\})", r"{{\1}}", cmd)
                 cmd2 = substitute(cmd, answers) if answers else cmd
                 # Any placeholder still unfilled? ask the user live, once per variable.
-                for var in _re.findall(r"{{\s*([\w]+)\s*}}", cmd2):
+                for var in _re.findall(r"\{\{\s*([\w]+)\s*\}\}", cmd2):
                     if ask_user:
                         ashot = str(runs_dir / f"plan-{i:02d}-ask.png")
                         try:
@@ -1819,7 +1822,7 @@ def run_plan(plan, answers=None, preview=True, runs_root="runs", run_id_override
                         ans = ask_user(f"What is the value for '{var.replace('_', ' ')}'?", ashot_url)
                         if ans:
                             answers[var] = ans
-                            cmd2 = _re.sub(r"{{\s*" + _re.escape(var) + r"\s*}}", ans, cmd2)
+                            cmd2 = _re.sub(r"\{\{\s*" + _re.escape(var) + r"\s*\}\}", ans, cmd2)
                 shot = str(runs_dir / f"plan-{i:02d}.png")
                 step_obj = SimpleNamespace(step_id=f"plan-{i:02d}", action=desc, expected_result=desc, test_data="")
                 ok, note = True, desc
