@@ -1036,7 +1036,8 @@ def _dispatch(page: Page, step) -> None:
     if "type" in action and any(k in action for k in ("full name", "proxy", "target user", "wish to proxy")):
         name = data.strip() if data and not data.lower().startswith("input") else ""
         if not name:
-            name = "Alex Brackley"  # fallback — set in feedback with TYPE: Name to override
+            raise RuntimeError("Proxy step needs a target name — provide it in the test data "
+                               "or a TYPE: <name> command (e.g. TYPE: {{target_employee_name}}).")
         # Focus the search input inside the dialog
         for sel in ["input[type='text']:visible", "input[placeholder*='name' i]",
                     "input[placeholder*='search' i]", "input[placeholder*='user' i]", "input"]:
@@ -1067,7 +1068,10 @@ def _dispatch(page: Page, step) -> None:
         name = data.strip() or _first_quoted(step.action) or _word_after_click(step.action)
         if not name or name.lower().startswith("input"):
             m = re.search(r"\bas\s+([A-Z][a-zA-Z ]{2,40})", step.action)
-            name = m.group(1).strip() if m else "Alex Brackley"
+            if not m:
+                raise RuntimeError("Proxy step needs a target name — none found in the step "
+                                   "action or test data.")
+            name = m.group(1).strip()
         _proxy_login(page, name)
         return
 
