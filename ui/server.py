@@ -833,6 +833,17 @@ app = FastAPI(title="EX3 TestOps")
 @app.on_event("startup")
 def _startup_seed() -> None:
     _seed_canonical_tasks()
+    # Validate SF login at boot — log a clear warning if missing (don't crash the
+    # app, so the admin can still load the UI and fix the config).
+    try:
+        from engine.runner import get_sf_credentials, SFCredentialsError
+        try:
+            get_sf_credentials()
+            print("[startup] SuccessFactors credentials present.")
+        except SFCredentialsError as exc:
+            print(f"[startup][WARN] {exc}")
+    except Exception:
+        pass
 
 
 templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))

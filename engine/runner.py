@@ -20,6 +20,31 @@ from engine.visual_verifier import verify_step as _verify_step
 
 _DEFAULT_SF_URL = "https://hcm-eu10-preview.hr.cloud.sap/login?company=veritasp01T2"
 
+
+class SFCredentialsError(RuntimeError):
+    """Raised when SuccessFactors login details are missing/invalid — surfaced to
+    the user as a readable run error instead of a cryptic KeyError."""
+
+
+def get_sf_credentials(company: str | None = None) -> dict:
+    """Single source of SuccessFactors login details. Today reads them from the
+    environment; Phase A#3 will resolve per-company creds (from the Vault) by the
+    `company` arg. Route ALL credential access through here so that swap is a
+    one-function change, not a codebase hunt.
+
+    Raises SFCredentialsError (with a clear message) if anything required is missing.
+    """
+    url = (os.getenv("SF_URL") or _DEFAULT_SF_URL).strip()
+    username = (os.getenv("SF_USERNAME") or "").strip()
+    password = (os.getenv("SF_PASSWORD") or "").strip()
+    missing = [n for n, v in (("SF_USERNAME", username), ("SF_PASSWORD", password), ("SF_URL", url)) if not v]
+    if missing:
+        raise SFCredentialsError(
+            "SuccessFactors login isn't set up — missing " + ", ".join(missing)
+            + ". Add the SF credentials in settings before running."
+        )
+    return {"url": url, "username": username, "password": password}
+
 _STOP_WORDS = {"the", "a", "an", "to", "from", "and", "or", "in", "on", "of", "for",
                "is", "are", "you", "your", "it", "this", "that", "with", "by", "at"}
 
@@ -108,12 +133,16 @@ def run_scenario(
     runs_dir = base / run_id
     runs_dir.mkdir(parents=True, exist_ok=True)
 
-    username = os.environ["SF_USERNAME"]
-    password = os.environ["SF_PASSWORD"]
-    sf_url = os.getenv("SF_URL", _DEFAULT_SF_URL)
-
     steps = scenario.steps[:max_steps] if max_steps else scenario.steps
     result = ScenarioResult(scenario_id=scenario.scenario_id, run_id=run_id, passed=False)
+    try:
+        _creds = get_sf_credentials()
+    except SFCredentialsError as exc:
+        print(f"  [creds] {exc}")
+        result.error = str(exc)
+        result.ended_at = datetime.utcnow()
+        return result
+    username, password, sf_url = _creds["username"], _creds["password"], _creds["url"]
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
@@ -1570,11 +1599,16 @@ def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None
     base = Path(runs_root) if isinstance(runs_root, (str, Path)) else Path("runs")
     runs_dir = base / run_id
     runs_dir.mkdir(parents=True, exist_ok=True)
-    username = os.environ["SF_USERNAME"]
-    password = os.environ["SF_PASSWORD"]
-    sf_url = os.getenv("SF_URL", _DEFAULT_SF_URL)
     result = ScenarioResult(scenario_id="agent", run_id=run_id, passed=False)
     executed_cmds: list[str] = []   # successful command lines, for Save-as-task
+    try:
+        _creds = get_sf_credentials()
+    except SFCredentialsError as exc:
+        print(f"  [creds] {exc}")
+        result.error = str(exc)
+        result.ended_at = datetime.utcnow()
+        return result
+    username, password, sf_url = _creds["username"], _creds["password"], _creds["url"]
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, slow_mo=400, args=[
@@ -1706,11 +1740,16 @@ def run_plan(plan, answers=None, preview=True, runs_root="runs", run_id_override
     base = Path(runs_root) if isinstance(runs_root, (str, Path)) else Path("runs")
     runs_dir = base / run_id
     runs_dir.mkdir(parents=True, exist_ok=True)
-    username = os.environ["SF_USERNAME"]
-    password = os.environ["SF_PASSWORD"]
-    sf_url = os.getenv("SF_URL", _DEFAULT_SF_URL)
     answers = dict(answers or {})
     result = ScenarioResult(scenario_id="plan", run_id=run_id, passed=False)
+    try:
+        _creds = get_sf_credentials()
+    except SFCredentialsError as exc:
+        print(f"  [creds] {exc}")
+        result.error = str(exc)
+        result.ended_at = datetime.utcnow()
+        return result
+    username, password, sf_url = _creds["username"], _creds["password"], _creds["url"]
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(headless=True, slow_mo=150, args=[
