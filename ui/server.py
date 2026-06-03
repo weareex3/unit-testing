@@ -973,6 +973,35 @@ def _sign_auth(username: str, role: str) -> str:
     return base64.urlsafe_b64encode(f"{payload}|{sig}".encode("utf-8")).decode("ascii")
 
 
+_SETPW_TTL_SECONDS = 7 * 24 * 3600  # invite links valid for 7 days
+
+
+def _sign_setpw(username: str) -> str:
+    """Signed, time-limited token for a 'set your password' invite link."""
+    iat = str(int(datetime.utcnow().timestamp()))
+    payload = f"setpw|{username}|{iat}"
+    sig = hmac.new(AUTH_TOKEN.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(f"{payload}|{sig}".encode("utf-8")).decode("ascii")
+
+
+def _verify_setpw(token: str) -> str | None:
+    """Return the username if the invite token is valid and unexpired, else None."""
+    try:
+        decoded = base64.urlsafe_b64decode(token.encode("ascii")).decode("utf-8")
+        purpose, username, iat, sig = decoded.split("|")
+        if purpose != "setpw":
+            return None
+        expected = hmac.new(AUTH_TOKEN.encode("utf-8"), f"setpw|{username}|{iat}".encode("utf-8"),
+                            hashlib.sha256).hexdigest()
+        if not secrets.compare_digest(sig, expected):
+            return None
+        if datetime.utcnow().timestamp() - int(iat) > _SETPW_TTL_SECONDS:
+            return None
+        return username
+    except Exception:
+        return None
+
+
 def _read_auth_cookie(request: Request) -> dict | None:
     raw = request.cookies.get(AUTH_COOKIE, "")
     if not raw:
@@ -1099,6 +1128,7 @@ async def require_pin(request: Request, call_next):
         path in ("/login", "/logout")
         or path.startswith("/static")
         or path.startswith("/webauthn/authenticate")  # passkey login happens pre-auth
+        or path.startswith("/set-password")            # invited users set their password pre-auth
     ):
         return await call_next(request)
 
@@ -1198,9 +1228,12 @@ def login(request: Request, username: str = Form(""), password: str = Form("")):
     if _login_locked(key):
         return RedirectResponse("/login?error=locked", status_code=303)
     for user in _configured_users():
+        stored = str(user.get("password", ""))
+        if not stored:
+            continue  # invited users have no password yet — can't log in until they set one
         if (
             secrets.compare_digest(username.strip().lower(), str(user.get("username", "")).strip().lower())
-            and _password_ok(password, str(user.get("password", "")))
+            and _password_ok(password, stored)
         ):
             role = str(user.get("role", "viewer")).lower()
             _clear_login_fails(key)
@@ -1508,6 +1541,101 @@ def delete_user(username: str = Form(...)):
     users = [u for u in _load_users() if str(u.get("username", "")).lower() != username.strip().lower()]
     _save_users(users)
     return RedirectResponse("/admin/users", status_code=303)
+
+
+@app.post("/api/users/invite")
+async def invite_user(request: Request,
+                      email: str = Form(...), name: str = Form(""),
+                      role: str = Form("tester"), company: str = Form("internal")):
+    """Create an invited user (no password yet) and return a signed set-password link.
+    The owner sends the link to the person; they set their own password. (Auto-email
+    is a drop-in once an email provider is configured — returns the link for now.)"""
+    email = email.strip().lower()
+    if "@" not in email or "." not in email:
+        return JSONResponse({"ok": False, "error": "Enter a valid email address."}, status_code=400)
+    if role not in ROLE_LEVELS:
+        role = "tester"
+    company = (company or "internal").strip().lower()
+    if company not in _company_keys():
+        company = "internal"
+    username = email  # invited users log in with their email
+    users = _load_users()
+    existing = next((u for u in users if str(u.get("username", "")).lower() == username), None)
+    if existing is None:
+        existing = {"username": username}
+        users.append(existing)
+    existing["name"] = name.strip() or email.split("@")[0]
+    existing["email"] = email
+    existing["role"] = role
+    existing["company"] = company
+    existing["invited"] = True          # no usable password until they set one
+    existing["password"] = ""
+    _save_users(users)
+
+    token = _sign_setpw(username)
+    host = request.headers.get("x-forwarded-host") or request.url.netloc
+    proto = (request.headers.get("x-forwarded-proto", "") or request.url.scheme).split(",")[0].strip() or "https"
+    invite_link = f"{proto}://{host}/set-password?token={token}"
+    # TODO(email): if an email provider is configured, send invite_link to `email` here.
+    return JSONResponse({"ok": True, "email": email, "invite_link": invite_link, "emailed": False})
+
+
+@app.get("/set-password", response_class=HTMLResponse)
+def set_password_page(token: str = ""):
+    username = _verify_setpw(token)
+    if not username:
+        body = ('<h2 style="color:#c9493d">This invite link is invalid or has expired.</h2>'
+                '<p>Ask an admin to send you a new one.</p>')
+        return HTMLResponse(_setpw_html(body), status_code=400)
+    safe_user = username.replace("<", "&lt;")
+    body = f'''
+      <h1>Set your password</h1>
+      <p style="color:#6e6e73;">for <strong>{safe_user}</strong></p>
+      <form method="post" action="/set-password">
+        <input type="hidden" name="token" value="{token}"/>
+        <label>New password</label>
+        <input class="inp" type="password" name="password" required minlength="8" placeholder="At least 8 characters"/>
+        <label>Confirm password</label>
+        <input class="inp" type="password" name="confirm" required minlength="8"/>
+        <button class="btn" type="submit">Set password &amp; activate</button>
+      </form>'''
+    return HTMLResponse(_setpw_html(body))
+
+
+@app.post("/set-password")
+def set_password_submit(token: str = Form(...), password: str = Form(...), confirm: str = Form("")):
+    username = _verify_setpw(token)
+    if not username:
+        return HTMLResponse(_setpw_html('<h2 style="color:#c9493d">Invalid or expired link.</h2>'), status_code=400)
+    if len(password) < 8:
+        return HTMLResponse(_setpw_html('<h2 style="color:#c9493d">Password must be at least 8 characters.</h2>'
+                                        '<p><a href="javascript:history.back()">Go back</a></p>'), status_code=400)
+    if password != confirm:
+        return HTMLResponse(_setpw_html('<h2 style="color:#c9493d">Passwords did not match.</h2>'
+                                        '<p><a href="javascript:history.back()">Go back</a></p>'), status_code=400)
+    users = _load_users()
+    u = next((x for x in users if str(x.get("username", "")).lower() == username.lower()), None)
+    if u is None:
+        return HTMLResponse(_setpw_html('<h2 style="color:#c9493d">That invite is no longer valid.</h2>'), status_code=400)
+    u["password"] = _hash_password(password)
+    u["invited"] = False
+    _save_users(users)
+    return HTMLResponse(_setpw_html(
+        '<h1>Password set ✓</h1><p>You can now sign in.</p>'
+        '<p><a class="btn" href="/login">Go to login</a></p>'))
+
+
+def _setpw_html(body: str) -> str:
+    return f"""<!DOCTYPE html><html><head><meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Set password — EX3 TestOps</title>
+<style>
+  body{{font-family:-apple-system,Segoe UI,Roboto,sans-serif;background:#f5f4f0;display:grid;place-items:center;min-height:100vh;margin:0;color:#1d1d1f}}
+  .card{{background:#fff;border-radius:16px;box-shadow:0 10px 40px rgba(0,0,0,.1);padding:34px;max-width:380px;width:90%}}
+  h1{{font-size:22px;margin:0 0 4px}} label{{display:block;font-size:12px;font-weight:700;color:#6e6e73;margin:14px 0 5px}}
+  .inp{{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #d2d2d7;border-radius:10px;font-size:14px}}
+  .btn{{display:inline-block;margin-top:18px;background:#1d1d1f;color:#fff;border:0;border-radius:10px;padding:11px 18px;font-weight:700;cursor:pointer;text-decoration:none}}
+</style></head><body><div class="card">{body}</div></body></html>"""
 
 
 # ── Companies / clients ─────────────────────────────────────────────────────

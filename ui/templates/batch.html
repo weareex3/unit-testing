@@ -110,6 +110,13 @@
   </div>
 </div>
 
+<div id="vid-modal" style="display:none;position:fixed;inset:0;z-index:70;background:rgba(0,0,0,.85);align-items:center;justify-content:center;">
+  <div style="position:relative;max-width:92vw;">
+    <button id="vid-close" type="button" style="position:absolute;top:-36px;right:0;background:none;border:0;color:#fff;font-size:26px;line-height:1;cursor:pointer;">✕</button>
+    <video id="vid-player" controls autoplay playsinline style="max-width:92vw;max-height:84vh;border-radius:10px;background:#000;display:block;"></video>
+  </div>
+</div>
+
 <div id="agent-watch" style="display:none;position:fixed;inset:0;z-index:60;background:rgba(8,7,6,.82);backdrop-filter:blur(6px);">
   <div class="glass" style="max-width:900px;margin:14px auto;padding:0;color:#f8f4ea;display:flex;flex-direction:column;max-height:95vh;">
     <!-- Fixed header: title + live screen + controls -->
@@ -265,7 +272,7 @@ function renderRows(items) {
     const detail = blocker ? esc(blocker) : 'No blockers reported.';
     const trainUrl = `/scenario/${encodeURIComponent(item.scenario_id)}?script=${encodeURIComponent(SCRIPT_KEY)}&openLive=1`;
     const trained = item.pending_library_review ? ' · review video to save' : (item.trained_to_library ? ' · saved to library' : '');
-    const video = item.video_url ? `<a class="video-link" href="${esc(item.video_url)}" target="_blank">Video ready</a>` : (status === 'paused' || status === 'failed' || status === 'needs_training' ? `<a class="video-link" href="${trainUrl}">Train live</a>` : '<span class="video-link" style="opacity:.35;">Waiting</span>');
+    const video = item.video_url ? `<button type="button" class="video-link vid-open" data-vid="${esc(item.video_url)}" style="background:none;border:0;cursor:pointer;padding:0;font:inherit;">▸ Watch video</button>` : (status === 'paused' || status === 'failed' || status === 'needs_training' ? `<a class="video-link" href="${trainUrl}">Train live</a>` : '<span class="video-link" style="opacity:.35;">Waiting</span>');
     const rowTime = `<div class="row-time">Elapsed ${mmss(item.started_at, item.ended_at)}</div>`;
     const lc = lightClass(confidence);
     const light = `<span class="tl tl-${lc}" title="${esc(lightTitle(confidence))}"></span>`;
@@ -671,6 +678,27 @@ async function sendInstruction(){
 }
 document.getElementById('aw-instruct-send').addEventListener('click', sendInstruction);
 document.getElementById('aw-instruct').addEventListener('keydown', e => { if (e.key === 'Enter') sendInstruction(); });
+
+// ── In-page video modal — watch a finished run WITHOUT navigating away (which
+// would kill the Run All poller and look like everything stopped).
+(function(){
+  const modal = document.getElementById('vid-modal');
+  const player = document.getElementById('vid-player');
+  function closeVid(){
+    player.pause(); player.removeAttribute('src'); player.load();
+    modal.style.display = 'none';
+  }
+  document.getElementById('run-board').addEventListener('click', (e) => {
+    const b = e.target.closest('.vid-open');
+    if (!b) return;
+    e.preventDefault();
+    player.src = b.dataset.vid;
+    modal.style.display = 'flex';
+  });
+  document.getElementById('vid-close').addEventListener('click', closeVid);
+  modal.addEventListener('click', (e) => { if (e.target === modal) closeVid(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && modal.style.display === 'flex') closeVid(); });
+})();
 
 document.getElementById('start-batch').addEventListener('click', startBatch);
 loadPlan();

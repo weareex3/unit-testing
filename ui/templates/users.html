@@ -102,6 +102,26 @@
         </div>
       </section>
 
+      <div class="surface form-card" style="margin-bottom:18px;">
+        <div class="section-label" style="margin:0 0 4px;">Invite by email</div>
+        <p style="font-size:12px;color:var(--muted);margin:0 0 4px;">They get a secure link to set their own password (valid 7 days).</p>
+        <label>Email</label>
+        <input class="input" id="inv-email" type="email" placeholder="person@company.com" autocomplete="off" />
+        <label>Role</label>
+        <select id="inv-role">{% for role in roles %}<option value="{{ role }}"{% if role == 'tester' %} selected{% endif %}>{{ role|capitalize }}</option>{% endfor %}</select>
+        <label>Company</label>
+        <select id="inv-company">{% for co in companies %}<option value="{{ co.key }}">{{ co.name }}</option>{% endfor %}</select>
+        <button type="button" id="inv-send" class="btn btn-primary" style="width:100%;margin-top:14px;">Create invite</button>
+        <div id="inv-result" style="display:none;margin-top:12px;">
+          <div style="font-size:12px;font-weight:750;color:var(--ink);margin-bottom:6px;">Invite link — send this to them:</div>
+          <textarea id="inv-link" readonly rows="3" class="input" style="font-size:11px;font-family:monospace;resize:none;"></textarea>
+          <div style="display:flex;align-items:center;gap:8px;margin-top:6px;">
+            <button type="button" id="inv-copy" class="btn" style="font-size:12px;">Copy link</button>
+            <span id="inv-status" style="font-size:11px;color:var(--muted);"></span>
+          </div>
+        </div>
+      </div>
+
       <form id="user-form" class="surface form-card" method="post" action="/api/users">
         <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;">
           <div class="section-label" id="form-title" style="margin:0;">Add a new user</div>
@@ -215,6 +235,36 @@
     pw.type = show ? 'text' : 'password';
     document.getElementById('pw-show').textContent = show ? 'Hide' : 'Show';
   });
+  // ── Invite by email ────────────────────────────────────────────────────────
+  const invSend = document.getElementById('inv-send');
+  if (invSend) {
+    invSend.addEventListener('click', async () => {
+      const email = document.getElementById('inv-email').value.trim();
+      const status = document.getElementById('inv-status');
+      if (!email || email.indexOf('@') < 0) { alert('Enter a valid email.'); return; }
+      invSend.disabled = true; invSend.textContent = 'Creating…';
+      const fd = new FormData();
+      fd.append('email', email);
+      fd.append('role', document.getElementById('inv-role').value);
+      fd.append('company', document.getElementById('inv-company').value);
+      try {
+        const r = await (await fetch('/api/users/invite', {method:'POST', body: fd})).json();
+        if (r.ok) {
+          document.getElementById('inv-link').value = r.invite_link;
+          document.getElementById('inv-result').style.display = 'block';
+          status.textContent = r.emailed ? 'Emailed to them.' : 'Email not configured — copy & send it.';
+        } else { alert(r.error || 'Invite failed'); }
+      } catch (e) { alert('Invite failed'); }
+      invSend.disabled = false; invSend.textContent = 'Create invite';
+    });
+    document.getElementById('inv-copy').addEventListener('click', () => {
+      const t = document.getElementById('inv-link');
+      t.select();
+      if (navigator.clipboard) navigator.clipboard.writeText(t.value);
+      else document.execCommand('copy');
+      document.getElementById('inv-status').textContent = 'Copied!';
+    });
+  }
 })();
 </script>
 {% endraw %}
