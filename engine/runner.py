@@ -1522,6 +1522,7 @@ def _parse_kv(text: str) -> dict[str, str]:
 _SOM_MARK_JS = r"""
 () => {
   document.querySelectorAll('.__som_badge').forEach(e => e.remove());
+  document.querySelectorAll('[data-som]').forEach(e => e.removeAttribute('data-som'));
   const out = []; const seen = new Set(); let i = 0;
   const W = window.innerWidth, H = window.innerHeight;
   function lbl(el){
@@ -1551,6 +1552,7 @@ _SOM_MARK_JS = r"""
       const cx = Math.round(r.left + r.width/2), cy = Math.round(r.top + r.height/2);
       const key = cx + 'x' + cy; if (seen.has(key)) continue; seen.add(key);
       i++;
+      try { el.setAttribute('data-som', i); } catch(e){}   // re-query tag for reliable actuation
       out.push({i: i, x: cx, y: cy, label: lbl(el)});
       const b = document.createElement('div'); b.className = '__som_badge'; b.textContent = i;
       Object.assign(b.style, {position:'fixed', left:Math.max(0,r.left)+'px', top:Math.max(0,r.top)+'px',
@@ -1584,15 +1586,18 @@ def _unmark(page) -> None:
 
 
 def _resolve_marks(cmds: str, marks: list) -> str:
-    """Turn 'CLICK_MARK: N' into the real 'CLICK_XY: x, y' for marked element N."""
+    """Normalise 'CLICK_MARK: N' into 'CLICK_MARK: N | x, y' — keeping the number so
+    the executor clicks the live element by its data-som tag (auto-wait, survives DOM
+    shifts), with the captured coordinate only as a fallback."""
     import re as _re
     by_i = {int(m["i"]): m for m in marks if "i" in m}
     out = []
     for line in (cmds or "").splitlines():
         mo = _re.match(r"\s*CLICK_MARK:\s*#?(\d+)", line, _re.I)
         if mo:
-            mk = by_i.get(int(mo.group(1)))
-            out.append(f"CLICK_XY: {mk['x']}, {mk['y']}" if mk else line)
+            n = int(mo.group(1))
+            mk = by_i.get(n)
+            out.append(f"CLICK_MARK: {n} | {mk['x']}, {mk['y']}" if mk else line)
         else:
             out.append(line)
     return "\n".join(out)
@@ -1842,16 +1847,20 @@ def run_plan(plan, answers=None, preview=True, runs_root="runs", run_id_override
                     if not sr.passed:
                         raise RuntimeError(sr.error_message or "step failed")
                 except Exception as exc:
-                    # Smart fallback: one vision attempt for THIS step only.
+                    # Smart fallback: one vision attempt for THIS step, using set-of-marks
+                    # so it picks the right element by number instead of guessing pixels.
                     print(f"  [plan {i}] '{cmd2[:50]}' missed ({str(exc)[:50]}) — vision fallback")
+                    marks = _mark_clickables(page)
                     try:
                         page.screenshot(path=shot, full_page=False)
                     except Exception:
                         pass
-                    act = get_agent_actions(shot, desc, [], preview=preview)
-                    if act and act.get("commands", "").strip():
+                    _unmark(page)
+                    act = get_agent_actions(shot, desc, [], preview=preview, marks=marks)
+                    fb_cmds = _resolve_marks(act["commands"], marks) if (act and act.get("commands")) else ""
+                    if fb_cmds.strip():
                         try:
-                            _run_direct_commands(page, step_obj, str(runs_dir), act["commands"], _time.time())
+                            _run_direct_commands(page, step_obj, str(runs_dir), fb_cmds, _time.time())
                             note = f"{desc} — recovered with vision"
                         except Exception as e2:
                             ok, note = False, f"{desc} — failed: {str(e2)[:60]}"

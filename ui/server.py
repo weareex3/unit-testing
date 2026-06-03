@@ -2606,7 +2606,8 @@ def _batch_run_agent(batch_id: str, item: dict, scenario, script: str, answers: 
         result = run_agent_goal(goal, preview=True, runs_root=RUNS_DIR, run_id_override=run_id,
                                 step_done_callback=_step_done, max_iters=30,
                                 check_stop=lambda: _AGENT_STOP.get("stop"),
-                                ask_user=_ask_user, confirm_step=_confirm_step, confirm_done=_confirm_done)
+                                ask_user=_ask_user, confirm_step=_confirm_step, confirm_done=_confirm_done,
+                                grounding=True)   # precision targeting in autonomous/guided Run All
         learned_lines = list(getattr(result, "agent_commands", []) or [])
 
     videos = sorted((RUNS_DIR / run_id).glob("*.webm"))
