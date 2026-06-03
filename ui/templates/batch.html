@@ -390,7 +390,7 @@ async function pollBatch() {
     renderRows(batch.items || []);
     renderStats(batch);
     updateSignals(batch);
-    const agentItem = (batch.items || []).find(i => ['agent_choose','agent_planning','agent_plan','agent_running','waiting_input','awaiting_confirm','agent_review'].includes(statusFromItem(i)));
+    const agentItem = (batch.items || []).find(i => ['agent_choose','agent_planning','agent_plan','agent_running','waiting_input','awaiting_confirm','agent_confirm_done','agent_review'].includes(statusFromItem(i)));
     if (agentItem) showAgentWatch(agentItem); else if (awSid) hideAgentWatch();
     const running = (batch.items || []).find(i => i.status === 'running' || i.status === 'paused' || i.status === 'confirming');
     document.getElementById('plan-title').textContent = batch.status === 'completed' ? 'Run complete' : batch.status === 'needs_training' ? 'Training needed' : 'Automation in progress';

@@ -779,6 +779,13 @@ def _run_direct_commands(page: Page, step, output_dir: str, feedback: str, t0: f
                 continue
             if ":" not in line:
                 continue
+            # Guard: an unresolved {{placeholder}} means a required value was never provided.
+            # Fail clearly instead of typing the literal token (which SF rejects) and the
+            # run then falsely reporting "passed".
+            _missing = re.findall(r"\{\{\s*([\w]+)\s*\}\}", line)
+            if _missing:
+                raise RuntimeError("Required value not provided: " + ", ".join(sorted(set(_missing)))
+                                   + " — fill it in (e.g. the employee name) before running this task.")
             cmd, _, arg = line.partition(":")
             cmd = cmd.strip().upper()
             arg = arg.strip()
@@ -792,6 +799,19 @@ def _run_direct_commands(page: Page, step, output_dir: str, feedback: str, t0: f
             elif cmd == "CLICK_XY":
                 x, y = [float(v.strip()) for v in arg.split(",")]
                 page.mouse.click(x, y)
+            elif cmd == "CLICK_MARK":
+                # "CLICK_MARK: N | x, y" — click the element tagged data-som=N by re-querying
+                # it live (Playwright auto-waits + scrolls; survives DOM shifts). Fall back to
+                # the captured coordinate only if the tag is gone.
+                num, _, coords = arg.partition("|")
+                try:
+                    page.locator(f'[data-som="{num.strip()}"]').first.click(timeout=5000)
+                except Exception:
+                    cs = [c.strip() for c in coords.split(",") if c.strip()]
+                    if len(cs) == 2:
+                        page.mouse.click(float(cs[0]), float(cs[1]))
+                    else:
+                        raise
             elif cmd == "TYPE":
                 page.keyboard.type(arg)
             elif cmd == "PRESS":
