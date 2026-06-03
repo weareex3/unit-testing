@@ -189,6 +189,7 @@
         </div>
       </div>
       <div id="aw-review" style="display:none;margin-top:12px;">
+        <div id="aw-verdict" style="display:none;font-size:13px;font-weight:750;padding:9px 12px;border-radius:10px;margin-bottom:10px;"></div>
         <div style="color:rgba(248,244,234,.74);font-size:13px;margin-bottom:10px;">Claude finished this task. Watch it back, then save it to the library or skip — the run continues either way.</div>
         <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
           <input id="aw-task-name" class="dark-input" placeholder="Task name to save" style="flex:1;min-width:200px;">
@@ -542,6 +543,19 @@ async function showAgentWatch(item){
   const rev = document.getElementById('aw-review');
   if (st === 'agent_review' && !awDecisionSent) {
     rev.style.display = 'block';
+    // Expected-Result oracle verdict (fail-closed: never shows a false pass)
+    const vd = item.verification;
+    const vb = document.getElementById('aw-verdict');
+    if (vd && vd.verdict) {
+      const map = {
+        pass:         ['✓ Verified — screen matches the expected result', '#9ff0c5', 'rgba(31,157,90,.18)'],
+        needs_review: ['⚠ Needs review — couldn’t confirm it passed', '#ffcf9e', 'rgba(217,119,6,.18)'],
+        fail:         ['✗ Did not match the expected result', '#ffb0a9', 'rgba(201,73,61,.18)'],
+      };
+      const [label, color, bg] = map[vd.verdict] || map.needs_review;
+      vb.textContent = vd.reason ? `${label} — ${vd.reason}` : label;
+      vb.style.color = color; vb.style.background = bg; vb.style.display = 'block';
+    } else { vb.style.display = 'none'; }
     if (item.video_url) {
       const v = document.getElementById('aw-video');
       if (v.getAttribute('src') !== item.video_url) v.src = item.video_url;  // set once — don't reset playback

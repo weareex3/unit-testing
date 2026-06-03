@@ -466,3 +466,60 @@ Reply with ONLY valid JSON:
     except Exception as exc:
         print(f"  [plan] error: {exc}")
         return None
+
+
+def verify_expected_result(screenshot_path: str, expected: str, context: str = "") -> dict:
+    """Expected-Result oracle: compare the final screen against the EXPECTED RESULT the
+    tester wrote, and return a verdict. FAIL-CLOSED — if the verifier is unavailable,
+    errors, or is unsure, it returns 'needs_review', NEVER a false 'pass'.
+
+    Returns {"verdict": "pass" | "fail" | "needs_review", "reason": str}.
+    """
+    unsure = lambda why: {"verdict": "needs_review", "reason": why}
+    key = os.getenv("ANTHROPIC_API_KEY")
+    if not key:
+        return unsure("verifier unavailable (no API key)")
+    if not (expected or "").strip():
+        return unsure("no expected result on the step to check against")
+    if not screenshot_path or not Path(screenshot_path).exists():
+        return unsure("no screenshot to verify")
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=key)
+        img = base64.standard_b64encode(Path(screenshot_path).read_bytes()).decode()
+        prompt = f"""You are a strict UAT verifier checking a SAP SuccessFactors screen.
+
+The tester wrote this EXPECTED RESULT for the step(s) just performed:
+  "{expected}"
+{context}
+
+Look at the screenshot — it is the screen AFTER the action ran. Decide whether the expected
+result was clearly achieved.
+- "pass": the screen CLEARLY shows the expected result was achieved.
+- "fail": the screen clearly shows it was NOT achieved (error, wrong screen, or no change).
+- "needs_review": you cannot tell for certain from the screenshot.
+
+Be strict: a testing tool must never claim a pass it isn't sure of. If you are not confident
+it passed, answer "needs_review" — do NOT guess "pass".
+
+Reply with ONLY valid JSON: {{"verdict": "pass|fail|needs_review", "reason": "<one short sentence>"}}"""
+        msg = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=200,
+            messages=[{"role": "user", "content": [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img}},
+                {"type": "text", "text": prompt},
+            ]}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            raw = raw[4:] if raw.startswith("json") else raw
+        data = json.loads(raw.strip())
+        verdict = str(data.get("verdict", "")).strip().lower()
+        if verdict not in ("pass", "fail", "needs_review"):
+            return unsure("verifier gave an unclear answer")
+        return {"verdict": verdict, "reason": str(data.get("reason", ""))[:200]}
+    except Exception as exc:
+        print(f"  [verify] error: {exc}")
+        return unsure("verifier error")

@@ -2613,6 +2613,22 @@ def _batch_run_agent(batch_id: str, item: dict, scenario, script: str, answers: 
     item["video_url"] = f"/runs/{run_id}/{videos[0].name}" if videos else ""
     last_shot = steps_log[-1]["screenshot_url"] if steps_log else ""
 
+    # ── Expected-Result oracle: check the final screen against what the tester wrote.
+    # Fail-closed — 'needs_review' if unsure, never a false pass. Advisory: shown to the
+    # user in review; they still decide Save/Skip (verifier earns the gate before it holds it).
+    try:
+        from engine.coach import verify_expected_result
+        expected = "; ".join(st.expected_result for st in scenario.steps
+                             if getattr(st, "expected_result", "").strip())
+        shot_path = (RUNS_DIR / run_id / Path(last_shot).name) if last_shot else None
+        if expected and shot_path:
+            item["verification"] = verify_expected_result(str(shot_path), expected,
+                context=f"Task: {scenario.name}")
+        else:
+            item["verification"] = {"verdict": "needs_review", "reason": "no expected result or screenshot"}
+    except Exception as exc:
+        item["verification"] = {"verdict": "needs_review", "reason": f"verifier error: {exc}"}
+
     # ── Review -> Save (-> goes GREEN next time) or Skip; batch continues either way
     _write("review")
     item["status"] = "agent_review"
