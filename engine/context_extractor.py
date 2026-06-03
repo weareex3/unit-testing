@@ -4,6 +4,7 @@ and substitute them into later step commands as {{position_id}}, {{req_id}}, etc
 """
 
 import re
+from datetime import datetime
 
 # Patterns applied to visible page text after each step.
 # Order matters — more specific patterns first.
@@ -58,6 +59,20 @@ def substitute(text: str, context: dict) -> str:
         text = text.replace(f"{{{{{key}}}}}", str(value))
         text = text.replace(f"{{{key}}}", str(value))
     return text
+
+
+def normalize_placeholders(text: str) -> str:
+    """Convert a stray single-brace {var} to {{var}} (leaves {{var}} untouched).
+    Guards against planner prompts whose f-strings collapsed {{var}} -> {var}."""
+    return re.sub(r"(?<!\{)\{\s*([A-Za-z_][\w]*)\s*\}(?!\})", r"{{\1}}", text)
+
+
+def resolve_dynamic_tokens(text: str) -> str:
+    """Resolve run-time tokens. {{today}}/{today} -> current date as 'D Mon YYYY'
+    (e.g. 2 Jun 2026). Accepts one or two braces."""
+    d = datetime.now()
+    today = f"{d.day} {d.strftime('%b')} {d.year}"
+    return re.sub(r"\{{1,2}\s*today\s*\}{1,2}", today, text, flags=re.IGNORECASE)
 
 
 def step_produces(step_action: str) -> list[str]:

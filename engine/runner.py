@@ -14,7 +14,8 @@ from playwright.sync_api import sync_playwright, Page
 
 from models.dataclasses import TestScenario, StepResult, ScenarioResult
 from engine.coach import get_step_guidance, get_vision_commands, verify_step_result, save_successful_pattern
-from engine.context_extractor import extract_from_text, substitute, step_produces
+from engine.context_extractor import (extract_from_text, substitute, step_produces,
+                                       normalize_placeholders, resolve_dynamic_tokens)
 from engine.visual_verifier import verify_step as _verify_step
 
 
@@ -768,22 +769,12 @@ def _agent_step_is_final_save(step_action: str) -> bool:
     return bool(re.search(r"\b(save|submit)\b", text))
 
 
-def _resolve_dynamic_tokens(text: str) -> str:
-    """Resolve run-time tokens. {{today}} -> current date as 'D Mon YYYY' (e.g. 2 Jun 2026)."""
-    import re as _re
-    d = datetime.now()
-    today = f"{d.day} {d.strftime('%b')} {d.year}"
-    # Accept one OR two braces ({today} or {{today}}) — model prompts are f-strings
-    # which can collapse {{ }} to single braces.
-    return _re.sub(r"\{{1,2}\s*today\s*\}{1,2}", today, text, flags=_re.IGNORECASE)
-
-
 def _run_direct_commands(page: Page, step, output_dir: str, feedback: str, t0: float) -> StepResult:
     """Execute a step using direct commands written in the feedback box."""
     current_cmd = ""
     try:
         for line in feedback.strip().splitlines():
-            line = _resolve_dynamic_tokens(line.strip())
+            line = resolve_dynamic_tokens(line.strip())
             if not line or line.startswith("#"):
                 continue
             if ":" not in line:
@@ -1808,7 +1799,7 @@ def run_plan(plan, answers=None, preview=True, runs_root="runs", run_id_override
                 cmd = st.get("cmd", "")
                 # Normalise single-brace {var} to {{var}} so a stray planner token still
                 # gets substituted/asked (defensive — the planner now emits double braces).
-                cmd = _re.sub(r"(?<!\{)\{\s*([A-Za-z_][\w]*)\s*\}(?!\})", r"{{\1}}", cmd)
+                cmd = normalize_placeholders(cmd)
                 cmd2 = substitute(cmd, answers) if answers else cmd
                 # Any placeholder still unfilled? ask the user live, once per variable.
                 for var in _re.findall(r"\{\{\s*([\w]+)\s*\}\}", cmd2):
