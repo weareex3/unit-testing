@@ -2226,6 +2226,47 @@ def _ai_task_description(scenario, user_note: str) -> str:
         return fallback
 
 
+def _ai_describe_learned_task(name: str, goal: str, command_lines: list) -> dict:
+    """Rich description + per-step descriptions for a task taught in the Testing Hub /
+    agent (which has a plain-English GOAL + a recorded command sequence, not a
+    scenario). Mirrors _ai_task_description so Hub-saved tasks are as findable as
+    scenario-saved ones. Fail-soft: falls back to the goal + raw commands.
+    Returns {"description": str, "step_descriptions": [str, ...]}."""
+    cmds = [str(c).strip() for c in (command_lines or []) if str(c).strip()]
+    fallback = {"description": (goal or "").strip() or name, "step_descriptions": cmds[:]}
+    api_key = os.getenv("ANTHROPIC_API_KEY", "")
+    if not api_key or not cmds:
+        return fallback
+    numbered = "\n".join(f"{i+1}. {c}" for i, c in enumerate(cmds))
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=api_key)
+        msg = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=600,
+            messages=[{"role": "user", "content": (
+                "A SAP SuccessFactors task was just taught by recording these browser commands. "
+                "Write (a) a clear 2-4 sentence DESCRIPTION of what the task accomplishes — its goal "
+                "and key actions, so it can be recognised later under different wording (avoid UI "
+                "minutiae); and (b) a short plain-English line describing each command, in order.\n\n"
+                f"Task name: {name}\n"
+                + (f"User's goal: {goal}\n" if goal else "")
+                + f"Commands:\n{numbered}\n\n"
+                'Reply with ONLY JSON: {"description": "...", "steps": ["what command 1 does", ...]}'
+            )}],
+        )
+        raw = msg.content[0].text.strip()
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            raw = raw[4:] if raw.startswith("json") else raw
+        data = json.loads(raw.strip())
+        desc = str(data.get("description", "")).strip() or fallback["description"]
+        steps = [str(s).strip() for s in (data.get("steps") or []) if str(s).strip()] or fallback["step_descriptions"]
+        return {"description": desc, "step_descriptions": steps}
+    except Exception:
+        return fallback
+
+
 def _coverage_for_scenario(scenario, library: dict) -> dict:
     """Best-matching library task + per-step coverage for ONE scenario.
     Returns {"matched_task": name|None, "reason": str, "coverage": {step_id: bool}}.
@@ -3248,6 +3289,7 @@ async def api_lab_run(request: Request):
     _AGENT_IO["confirm"] = None
     _LAB_LEARNED["run_id"] = run_id
     _LAB_LEARNED["commands"] = []
+    _LAB_LEARNED["goal"] = goal
     _ACTIVE_RUNS["agent"] = {"status": "running", "run_id": run_id, "user": user, "goal": goal}
     log_file = RUNS_DIR / "agent_last_run.json"
     steps_log: list[dict] = []
@@ -3372,14 +3414,15 @@ async def api_lab_save(request: Request):
     cmds = list(_LAB_LEARNED.get("commands") or [])
     if not cmds:
         return JSONResponse({"ok": False, "error": "No confirmed moves to save yet."}, status_code=400)
+    info = _ai_describe_learned_task(task_name, str(_LAB_LEARNED.get("goal", "")), cmds)
     data = _load_library()
     data[task_name] = {
-        "description": f"Trained in the Testing Hub (confirm-each-move): {task_name}.",
-        "note": "Learned via step-by-step confirm training.",
+        "description": info["description"],
+        "note": "Learned via step-by-step confirm training in the Testing Hub.",
         "scenario_id": "",
         "steps": {"step-1": "\n".join(cmds)},
-        "step_actions": [task_name],
-        "step_descriptions": [],
+        "step_actions": info["step_descriptions"],
+        "step_descriptions": info["step_descriptions"],
         "has_learned_commands": True,
     }
     _save_library(data)
