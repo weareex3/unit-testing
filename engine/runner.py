@@ -1525,13 +1525,43 @@ _SOM_MARK_JS = r"""
   document.querySelectorAll('[data-som]').forEach(e => e.removeAttribute('data-som'));
   const out = []; const seen = new Set(); let i = 0;
   const W = window.innerWidth, H = window.innerHeight;
+  function fieldLabel(el){
+    // Resolve the visible label for a form field — the "Address Line 2:" text that
+    // sits NEXT to the input, not on it. Tries aria-labelledby, <label for>, a wrapping
+    // <label>, then the nearest preceding label-ish text in the field's container.
+    try {
+      const root = (el.getRootNode && el.getRootNode()) || document;
+      const lb = el.getAttribute && el.getAttribute('aria-labelledby');
+      if (lb){ const r = (root.getElementById ? root.getElementById(lb.split(' ')[0]) : document.getElementById(lb.split(' ')[0])); if (r && r.innerText) return r.innerText.trim(); }
+      if (el.id){ try { const lf = root.querySelector('label[for="' + (window.CSS&&CSS.escape?CSS.escape(el.id):el.id) + '"]'); if (lf && lf.innerText) return lf.innerText.trim(); } catch(e){} }
+      const wl = el.closest && el.closest('label'); if (wl && wl.innerText) return wl.innerText.trim();
+      // Heuristic: nearest preceding <label>/ui5-label within ~3 ancestors.
+      let n = el, hops = 0;
+      while (n && hops++ < 4){
+        let s = n.previousElementSibling;
+        while (s){
+          const tg = (s.tagName||'').toLowerCase();
+          if ((tg === 'label' || tg === 'ui5-label' || /label/i.test(s.className||'')) && s.innerText) return s.innerText.trim();
+          s = s.previousElementSibling;
+        }
+        n = n.parentElement;
+      }
+    } catch(e){}
+    return '';
+  }
   function lbl(el){
     // Attribute-based names first (SAP UI5 exposes text via aria-label/title/text).
     let t = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title')
-            || el.getAttribute('text') || el.getAttribute('alt') || el.getAttribute('placeholder'))) || '';
+            || el.getAttribute('text') || el.getAttribute('alt'))) || '';
+    const tag = (el.tagName || '').toLowerCase();
+    const isField = ['input','select','textarea'].includes(tag) || tag.indexOf('ui5-') === 0;
+    // For form fields, the label is a separate element — resolve it so "Address Line 2"
+    // is distinguishable from "Postal Code".
+    if (!t && isField) t = fieldLabel(el);
+    if (!t) t = (el.getAttribute && el.getAttribute('placeholder')) || '';
     // innerText (NOT textContent) — innerText skips <style>/<script>, so it can't leak CSS.
     if (!t) t = (el.innerText || '').trim().replace(/\s+/g, ' ');
-    t = t.slice(0, 50);
+    t = (t || '').replace(/\s+/g, ' ').slice(0, 50).replace(/[:*]\s*$/, '').trim();
     // Reject obvious CSS/stylesheet leakage from web-component shadow roots.
     if (/[{}]|:host|\.ui5-|wrapping-type/.test(t)) t = '';
     if (!t && el.tagName) t = el.tagName.toLowerCase().replace(/^ui5-/, '');
