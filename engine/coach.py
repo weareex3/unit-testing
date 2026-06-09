@@ -335,10 +335,15 @@ RULES:
 - VERIFY-THE-DIALOG RULE: after clicking a pencil, the edit form that opens must match the card you
   intended (e.g. editing Addresses should show "Address Line" fields, NOT "Legal First Name"). If the
   wrong form opened, you clicked the wrong card's pencil — close it and click the correct card's pencil.
+- FILL-A-FIELD RULE: to put a value in a NAMED form field (e.g. "Address Line 2", "Postal Code"),
+  PREFER `FILL: <field label> | <value>` — it targets the field by its visible label, which is far
+  more reliable than clicking a guessed input then typing. Only fall back to click-then-type if FILL
+  can't find the label. ALWAYS finish the requested edit — don't stop with the field still empty.
 - REPLACE-A-VALUE RULE: a field that already contains text — plain TYPE will APPEND to it (you'd get
   "old valuenew value"). To CHANGE/REPLACE an existing value, clear it first: click the field, then
   PRESS: Control+A then PRESS: Delete, THEN TYPE the new value. (Or use FILL: <label> | <value>, which
-  clears the field automatically.) Never TYPE a replacement into a non-empty field without clearing.
+  clears the field automatically.) "Add X to the end" of an EMPTY field just means set it to X.
+  Never TYPE a replacement into a non-empty field without clearing.
 - ANTI-REPEAT RULE: never click the same target twice in a row. If the screen did not change
   after your last action, the click missed — try a DIFFERENT target (the avatar, a row, a link,
   a nearby element) or a different approach, rather than repeating the same click.
