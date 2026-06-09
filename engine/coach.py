@@ -276,10 +276,14 @@ def get_agent_actions(screenshot_path: str, goal: str, history: list, preview: b
     if marks:
         legend = "\n".join(f"  {m['i']}. {m.get('label', '')}" for m in marks if m.get("i"))
         marks_section = (
-            "\n\nNUMBERED CLICKABLE ELEMENTS (each is labelled with a red number badge in the "
-            "screenshot). To click one, use `CLICK_MARK: <number>` — this is FAR more reliable than "
-            "guessing coordinates, so PREFER IT for every click. Match the number to the element you "
-            "want by reading the screenshot AND this list:\n" + legend
+            "\n\nNUMBERED CLICKABLE ELEMENTS (each has a red number badge in the screenshot). To click "
+            "one, use `CLICK_MARK: <number>` and match the number to the element by reading BOTH the "
+            "screenshot and this list:\n" + legend +
+            "\n\nCRITICAL: only use CLICK_MARK when a number genuinely sits on the element you want. "
+            "If the thing you want to click — e.g. a pop-up/dropdown menu item like 'Public Profile' or "
+            "'Proxy Now' — is NOT in this numbered list, do NOT pick a nearby/different number. Instead "
+            "use `CLICK: <its exact visible text>` (text clicks search pop-up menus and shadow DOM). "
+            "Picking the wrong number is worse than a text click."
         )
     try:
         import anthropic
