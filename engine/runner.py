@@ -1526,19 +1526,23 @@ _SOM_MARK_JS = r"""
   const out = []; const seen = new Set(); let i = 0;
   const W = window.innerWidth, H = window.innerHeight;
   function lbl(el){
-    let t = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title') || el.getAttribute('alt'))) || '';
-    if (!t) t = (el.innerText || el.textContent || '').trim().replace(/\s+/g,' ').slice(0,45);
-    if (!t && el.tagName.toLowerCase() === 'input') t = (el.getAttribute('placeholder') || el.getAttribute('name') || 'field');
-    return t || el.tagName.toLowerCase();
+    // Attribute-based names first (SAP UI5 exposes text via aria-label/title/text).
+    let t = (el.getAttribute && (el.getAttribute('aria-label') || el.getAttribute('title')
+            || el.getAttribute('text') || el.getAttribute('alt') || el.getAttribute('placeholder'))) || '';
+    // innerText (NOT textContent) — innerText skips <style>/<script>, so it can't leak CSS.
+    if (!t) t = (el.innerText || '').trim().replace(/\s+/g, ' ');
+    t = t.slice(0, 50);
+    // Reject obvious CSS/stylesheet leakage from web-component shadow roots.
+    if (/[{}]|:host|\.ui5-|wrapping-type/.test(t)) t = '';
+    if (!t && el.tagName) t = el.tagName.toLowerCase().replace(/^ui5-/, '');
+    return t || 'element';
   }
   var CLICK_SEL = 'button,a,input,select,textarea,[role=button],[role=link],[role=menuitem],'
-    + '[role=menuitemcheckbox],[role=menuitemradio],[role=tab],[role=option],[role=checkbox],[role=switch],[onclick]';
+    + '[role=menuitemcheckbox],[role=menuitemradio],[role=tab],[role=option],[role=checkbox],[role=switch],'
+    + '[onclick],ui5-li,ui5-li-custom,ui5-menu-item,ui5-list-item,ui5-button,ui5-toggle-button,'
+    + 'ui5-tab,ui5-option,ui5-checkbox,ui5-switch,ui5-segmented-button-item,ui5-side-navigation-item';
   function clickable(el){
-    const tag = el.tagName ? el.tagName.toLowerCase() : '';
-    if (['button','a','input','select','textarea'].includes(tag)) return true;
-    const role = el.getAttribute && el.getAttribute('role');
-    if (role && ['button','link','menuitem','menuitemcheckbox','menuitemradio','tab','checkbox','option','switch'].includes(role)) return true;
-    if (el.hasAttribute && el.hasAttribute('onclick')) return true;
+    try { if (el.matches && el.matches(CLICK_SEL)) return true; } catch(e){}
     // cursor:pointer is a WEAK signal — only count it for a leaf (no clickable child),
     // so wrapper divs around a menu don't get marked instead of the real items.
     try {
