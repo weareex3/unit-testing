@@ -210,6 +210,7 @@
 
 <script>
 const SCRIPT_KEY = {{ script|tojson }};
+const ONLY = new URLSearchParams(location.search).get('only') || '';   // "Run with Claude" on one scenario
 let awSid = null, awDecisionSent = false, awAnswerSent = false, awStepCount = -1;
 let awPlanLoaded = false, awPlanSent = false, awPaused = false, awLiveSrc = '';
 let awChoiceSent = false, awConfirmSent = false, awDoneSent = false;
@@ -323,7 +324,7 @@ function renderStats(batch) {
 }
 
 async function loadPlan() {
-  const res = await fetch('/api/batch/plan?script=' + encodeURIComponent(SCRIPT_KEY || ''));
+  const res = await fetch('/api/batch/plan?script=' + encodeURIComponent(SCRIPT_KEY || '') + (ONLY ? '&only=' + encodeURIComponent(ONLY) : ''));
   plan = await res.json();
   if (!plan.ok) {
     document.getElementById('plan-title').textContent = 'Could not prepare';
@@ -342,6 +343,7 @@ async function loadPlan() {
     if (!(item.scenario_id in runModes)) runModes[item.scenario_id] = defaultMode(item);
     if (!(item.scenario_id in runLibTask) && item.matched_task) runLibTask[item.scenario_id] = item.matched_task;
   });
+  if (ONLY) runModes[ONLY] = 'opus';   // "Run with Claude" → default this one to the agent
   document.getElementById('var-box').innerHTML = (plan.variables || []).map(v => `
     <div>
       <label>${esc(v.label)}</label>
@@ -364,7 +366,7 @@ async function startBatch() {
   const res = await fetch('/api/batch/start', {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
-    body: JSON.stringify({script: SCRIPT_KEY, answers, modes: runModes, lib_tasks: runLibTask,
+    body: JSON.stringify({script: SCRIPT_KEY, only: ONLY, answers, modes: runModes, lib_tasks: runLibTask,
       confidences: Object.fromEntries(Object.entries(planByScenario).map(([k,v]) => [k, v.confidence || 0]))})
   });
   const data = await res.json();

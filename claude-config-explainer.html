@@ -1,0 +1,1033 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Claude Code — Config & Customisation Guide</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --surface: #1a1d27;
+    --surface2: #22263a;
+    --border: #2e3250;
+    --accent: #6c63ff;
+    --accent2: #ff6584;
+    --accent3: #43e97b;
+    --accent4: #f7971e;
+    --accent5: #38b6ff;
+    --text: #e8eaf6;
+    --muted: #8b8fa8;
+    --code-bg: #12141f;
+    --tag-bg: #1e2035;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.6;
+  }
+
+  header {
+    padding: 2.5rem 2rem 1.5rem;
+    border-bottom: 1px solid var(--border);
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+
+  header h1 {
+    font-size: 1.9rem;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+
+  header p {
+    color: var(--muted);
+    margin-top: .4rem;
+    font-size: .95rem;
+  }
+
+  .tabs {
+    display: flex;
+    gap: .25rem;
+    padding: 1.25rem 2rem 0;
+    max-width: 1100px;
+    margin: 0 auto;
+    flex-wrap: wrap;
+  }
+
+  .tab {
+    padding: .55rem 1.1rem;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    font-size: .88rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+    border-bottom: none;
+    transition: all .15s;
+    background: var(--surface2);
+    color: var(--muted);
+    user-select: none;
+  }
+
+  .tab:hover { color: var(--text); background: var(--surface); }
+
+  .tab.active {
+    background: var(--surface);
+    color: var(--text);
+    border-color: var(--border);
+    border-bottom-color: var(--surface);
+    position: relative;
+    bottom: -1px;
+  }
+
+  .tab-dot {
+    display: inline-block;
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    margin-right: 6px;
+  }
+
+  .content-area {
+    max-width: 1100px;
+    margin: 0 auto;
+    padding: 0 2rem 3rem;
+  }
+
+  .panel {
+    display: none;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 0 8px 8px 8px;
+    padding: 2rem;
+    animation: fadeIn .18s ease;
+  }
+
+  .panel.active { display: block; }
+
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; } }
+
+  .panel-header {
+    display: flex;
+    align-items: flex-start;
+    gap: 1.2rem;
+    margin-bottom: 1.75rem;
+    padding-bottom: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .panel-icon {
+    font-size: 2.2rem;
+    line-height: 1;
+    flex-shrink: 0;
+  }
+
+  .panel-header h2 { font-size: 1.4rem; font-weight: 700; }
+  .panel-header .subtitle { color: var(--muted); font-size: .9rem; margin-top: .3rem; }
+  .panel-header .path {
+    display: inline-flex;
+    align-items: center;
+    gap: .4rem;
+    font-family: 'Consolas', monospace;
+    font-size: .8rem;
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    padding: .25rem .6rem;
+    border-radius: 4px;
+    margin-top: .5rem;
+    color: var(--accent3);
+  }
+
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.25rem; }
+  .grid3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.25rem; }
+
+  @media (max-width: 720px) {
+    .grid2, .grid3 { grid-template-columns: 1fr; }
+    .tabs { flex-wrap: wrap; }
+  }
+
+  .card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+  }
+
+  .card h3 {
+    font-size: .95rem;
+    font-weight: 700;
+    margin-bottom: .6rem;
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+  }
+
+  .card p, .card ul { font-size: .88rem; color: var(--muted); }
+  .card ul { padding-left: 1.1rem; }
+  .card ul li { margin-bottom: .3rem; }
+  .card ul li strong { color: var(--text); }
+
+  .tag {
+    display: inline-block;
+    font-size: .72rem;
+    font-weight: 700;
+    padding: .2rem .5rem;
+    border-radius: 4px;
+    background: var(--tag-bg);
+    border: 1px solid var(--border);
+    letter-spacing: .3px;
+    text-transform: uppercase;
+  }
+
+  pre {
+    background: var(--code-bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 1.1rem 1.25rem;
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: .82rem;
+    overflow-x: auto;
+    line-height: 1.65;
+    margin: .75rem 0;
+  }
+
+  .hlc { color: var(--muted); }          /* comment */
+  .hlk { color: #c678dd; }               /* keyword / key */
+  .hls { color: #98c379; }               /* string */
+  .hln { color: #d19a66; }               /* number / path */
+  .hlp { color: var(--accent5); }        /* property */
+  .hlh { color: var(--accent); }         /* heading */
+
+  .section-label {
+    font-size: .75rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .8px;
+    color: var(--muted);
+    margin: 1.5rem 0 .75rem;
+  }
+
+  .rule-row {
+    display: flex;
+    gap: 1rem;
+    align-items: flex-start;
+    padding: .8rem 1rem;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    margin-bottom: .5rem;
+    font-size: .88rem;
+  }
+
+  .rule-icon { font-size: 1.1rem; flex-shrink: 0; }
+  .rule-row strong { display: block; color: var(--text); margin-bottom: .15rem; }
+  .rule-row p { color: var(--muted); font-size: .84rem; }
+
+  .comparison-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: .85rem;
+    margin-top: .75rem;
+  }
+
+  .comparison-table th {
+    text-align: left;
+    padding: .65rem .9rem;
+    border-bottom: 2px solid var(--border);
+    font-size: .78rem;
+    text-transform: uppercase;
+    letter-spacing: .5px;
+    color: var(--muted);
+    font-weight: 700;
+  }
+
+  .comparison-table td {
+    padding: .65rem .9rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+
+  .comparison-table tr:last-child td { border-bottom: none; }
+  .comparison-table tr:hover td { background: var(--surface2); }
+
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: .3rem;
+    padding: .2rem .55rem;
+    border-radius: 20px;
+    font-size: .76rem;
+    font-weight: 700;
+  }
+
+  .badge.global { background: #1a1d3a; color: var(--accent); border: 1px solid var(--accent); }
+  .badge.project { background: #1a2e1a; color: var(--accent3); border: 1px solid var(--accent3); }
+  .badge.runtime { background: #2e1a1a; color: var(--accent2); border: 1px solid var(--accent2); }
+  .badge.auto { background: #2e2a1a; color: var(--accent4); border: 1px solid var(--accent4); }
+
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: .5rem;
+    flex-wrap: wrap;
+    margin: .75rem 0;
+  }
+
+  .flow-step {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: .45rem .9rem;
+    font-size: .84rem;
+  }
+
+  .flow-arrow { color: var(--muted); font-size: 1.1rem; }
+
+  .highlight-box {
+    border-left: 3px solid var(--accent);
+    padding: .75rem 1rem;
+    background: var(--surface2);
+    border-radius: 0 6px 6px 0;
+    font-size: .88rem;
+    margin: .75rem 0;
+  }
+
+  .highlight-box.warn { border-color: var(--accent4); }
+  .highlight-box.success { border-color: var(--accent3); }
+
+  .pill-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: .4rem;
+    margin: .5rem 0;
+  }
+
+  .pill {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 20px;
+    padding: .2rem .7rem;
+    font-size: .8rem;
+    font-family: monospace;
+  }
+
+  h3.section-h { font-size: 1rem; font-weight: 700; margin: 1.5rem 0 .75rem; }
+
+  .overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+    margin-bottom: 1.5rem;
+  }
+
+  .overview-card {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.25rem;
+    cursor: pointer;
+    transition: border-color .15s, transform .1s;
+    text-decoration: none;
+  }
+
+  .overview-card:hover {
+    border-color: var(--accent);
+    transform: translateY(-2px);
+  }
+
+  .overview-card .oc-icon { font-size: 1.8rem; margin-bottom: .6rem; }
+  .overview-card h3 { font-size: .95rem; font-weight: 700; color: var(--text); }
+  .overview-card p { font-size: .82rem; color: var(--muted); margin-top: .3rem; }
+  .overview-card .oc-scope { margin-top: .6rem; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Claude Code — Config &amp; Customisation</h1>
+  <p>Where things live, what they do, and when to use each one.</p>
+</header>
+
+<div class="tabs" id="tabs">
+  <div class="tab active" onclick="switchTab('overview')"><span class="tab-dot" style="background:#6c63ff"></span>Overview</div>
+  <div class="tab" onclick="switchTab('claudemd')"><span class="tab-dot" style="background:#43e97b"></span>CLAUDE.md</div>
+  <div class="tab" onclick="switchTab('skills')"><span class="tab-dot" style="background:#ff6584"></span>Skills</div>
+  <div class="tab" onclick="switchTab('memory')"><span class="tab-dot" style="background:#38b6ff"></span>Memory</div>
+  <div class="tab" onclick="switchTab('settings')"><span class="tab-dot" style="background:#f7971e"></span>Settings &amp; Hooks</div>
+  <div class="tab" onclick="switchTab('compare')"><span class="tab-dot" style="background:#a78bfa"></span>Side-by-side</div>
+</div>
+
+<div class="content-area">
+
+<!-- OVERVIEW -->
+<div class="panel active" id="panel-overview">
+  <div class="panel-header">
+    <div class="panel-icon">🗺️</div>
+    <div>
+      <h2>The Big Picture</h2>
+      <div class="subtitle">Five layers that shape how Claude Code behaves — each with a different scope and purpose.</div>
+    </div>
+  </div>
+
+  <div class="overview-grid">
+    <div class="overview-card" onclick="switchTab('claudemd')">
+      <div class="oc-icon">📄</div>
+      <h3>CLAUDE.md</h3>
+      <p>Persistent instructions injected into every conversation in a project or globally.</p>
+      <div class="oc-scope"><span class="badge global">Global</span> <span class="badge project">Project</span></div>
+    </div>
+    <div class="overview-card" onclick="switchTab('skills')">
+      <div class="oc-icon">⚡</div>
+      <h3>Skills</h3>
+      <p>Reusable prompt programs invoked as slash commands. Like macros for complex tasks.</p>
+      <div class="oc-scope"><span class="badge global">Global</span> <span class="badge project">Project</span></div>
+    </div>
+    <div class="overview-card" onclick="switchTab('memory')">
+      <div class="oc-icon">🧠</div>
+      <h3>Memory</h3>
+      <p>File-based facts about you, your preferences, and your projects — recalled across sessions.</p>
+      <div class="oc-scope"><span class="badge global">Global</span></div>
+    </div>
+    <div class="overview-card" onclick="switchTab('settings')">
+      <div class="oc-icon">⚙️</div>
+      <h3>Settings &amp; Hooks</h3>
+      <p>JSON config for permissions, env vars, and shell commands that run on tool-call events.</p>
+      <div class="oc-scope"><span class="badge global">Global</span> <span class="badge project">Project</span></div>
+    </div>
+    <div class="overview-card" onclick="switchTab('compare')">
+      <div class="oc-icon">📐</div>
+      <h3>Keybindings</h3>
+      <p>Custom keyboard shortcuts for frequently used actions.</p>
+      <div class="oc-scope"><span class="badge global">Global</span></div>
+    </div>
+  </div>
+
+  <div class="section-label">How they layer together</div>
+
+  <div class="flow">
+    <div class="flow-step">🌍 Global CLAUDE.md<br><small style="color:var(--muted)">~/.claude/CLAUDE.md</small></div>
+    <div class="flow-arrow">+</div>
+    <div class="flow-step">📁 Project CLAUDE.md<br><small style="color:var(--muted)">&lt;repo&gt;/CLAUDE.md</small></div>
+    <div class="flow-arrow">+</div>
+    <div class="flow-step">🧠 Memory files<br><small style="color:var(--muted)">~/.claude/projects/…/memory/</small></div>
+    <div class="flow-arrow">+</div>
+    <div class="flow-step">⚙️ Settings &amp; Hooks<br><small style="color:var(--muted)">settings.json</small></div>
+    <div class="flow-arrow">=</div>
+    <div class="flow-step" style="border-color:var(--accent);color:var(--accent)">Claude's behaviour<br><small>in this session</small></div>
+  </div>
+
+  <div class="highlight-box" style="margin-top:1.25rem">
+    <strong>Mental model:</strong> CLAUDE.md is the briefing doc (read every turn). Memory is the notebook (recalled when relevant). Settings/Hooks are the automation layer (run by the harness, not Claude). Skills are reusable macro programs you invoke on demand.
+  </div>
+
+  <div class="section-label" style="margin-top:1.75rem">Key distinction: Claude reads vs harness executes</div>
+
+  <div class="grid2">
+    <div class="card">
+      <h3>📖 Claude reads</h3>
+      <ul>
+        <li><strong>CLAUDE.md</strong> — injected as system prompt context</li>
+        <li><strong>Memory files</strong> — loaded when relevant</li>
+        <li><strong>Skill definitions</strong> — prompt programs Claude follows</li>
+      </ul>
+      <p style="margin-top:.75rem">These shape Claude's reasoning and responses. You change behaviour by editing text.</p>
+    </div>
+    <div class="card">
+      <h3>⚙️ Harness executes</h3>
+      <ul>
+        <li><strong>Hooks</strong> — shell commands triggered by events</li>
+        <li><strong>Permissions</strong> — allow/deny tool calls before Claude sees them</li>
+        <li><strong>Env vars</strong> — set in settings.json, passed to processes</li>
+      </ul>
+      <p style="margin-top:.75rem">These run outside Claude's reasoning. Memory/preferences cannot fulfil "always run X when Y" — only hooks can.</p>
+    </div>
+  </div>
+</div>
+
+<!-- CLAUDE.MD -->
+<div class="panel" id="panel-claudemd">
+  <div class="panel-header">
+    <div class="panel-icon">📄</div>
+    <div>
+      <h2>CLAUDE.md</h2>
+      <div class="subtitle">Persistent instructions baked into every conversation. Think of it as Claude's briefing document for a project or globally.</div>
+      <div class="path">~/.claude/CLAUDE.md &nbsp;·&nbsp; &lt;project&gt;/CLAUDE.md &nbsp;·&nbsp; &lt;subdir&gt;/.claude/CLAUDE.md</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <div class="section-label">Scope &amp; loading order</div>
+      <div class="rule-row">
+        <div class="rule-icon">🌍</div>
+        <div>
+          <strong>Global — <code>~/.claude/CLAUDE.md</code></strong>
+          <p>Loaded in every project. Put cross-project preferences, shell environment notes, your name/role, universal style rules.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">📁</div>
+        <div>
+          <strong>Project root — <code>&lt;repo&gt;/CLAUDE.md</code></strong>
+          <p>Loaded for that repo only. Architecture overview, tech stack, coding conventions, deploy commands, test commands.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">📂</div>
+        <div>
+          <strong>Sub-directory — <code>&lt;subdir&gt;/.claude/CLAUDE.md</code></strong>
+          <p>Loaded when Claude is working inside that folder. Module-specific rules, API contracts, local gotchas.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">🤝</div>
+        <div>
+          <strong>Imported — <code>@path/to/other.md</code></strong>
+          <p>Include another markdown file inline. Useful for shared team guidelines stored once and referenced everywhere.</p>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">What belongs in CLAUDE.md</div>
+      <div class="card">
+        <h3 style="color:var(--accent3)">✓ Good candidates</h3>
+        <ul>
+          <li>Coding style preferences (terse responses, no emojis)</li>
+          <li>Stack / framework notes ("this is Flask + SQLAlchemy")</li>
+          <li>Build, test, deploy commands</li>
+          <li>Architecture overview — where key modules live</li>
+          <li>Non-obvious constraints ("never mock the DB in tests")</li>
+          <li>Your role / experience level</li>
+          <li>Environment notes (OS, Python venv path, Node version)</li>
+        </ul>
+      </div>
+      <div class="card" style="margin-top:.75rem">
+        <h3 style="color:var(--accent2)">✗ Don't put here</h3>
+        <ul>
+          <li>Ephemeral task details or in-progress work</li>
+          <li>Things already obvious from the code</li>
+          <li>"Always run X when Y" automation — use Hooks</li>
+          <li>Personal facts that change often — use Memory</li>
+          <li>Reusable multi-step task programs — use Skills</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-label" style="margin-top:1.5rem">Example: Global CLAUDE.md</div>
+  <pre><span class="hlh"># Claude Code — Global Preferences</span>
+
+<span class="hlh">## Environment</span>
+<span class="hls">- Windows 11 Pro, PowerShell primary shell (Bash also available)</span>
+<span class="hls">- Projects live under `C:\Users\Me\Documents\`</span>
+<span class="hls">- Python venv at `C:\Users\Me\Documents\myproject\venv`</span>
+
+<span class="hlh">## Preferences</span>
+<span class="hls">- Terse responses — no trailing summaries, no "I've done X" narration</span>
+<span class="hls">- No comments in code unless the WHY is non-obvious</span>
+<span class="hls">- No emojis</span>
+<span class="hls">- Prefer editing existing files over creating new ones</span>
+<span class="hls">- Default model: Opus</span>
+
+<span class="hlh">## Deployment</span>
+<span class="hls">- Railway CLI (`railway up`) for deployments</span>
+<span class="hls">- Always run `python -m py_compile` on changed Python files before committing</span></pre>
+
+  <div class="section-label">Example: Project CLAUDE.md</div>
+  <pre><span class="hlh"># my-api — Project Notes</span>
+
+<span class="hlh">## Stack</span>
+<span class="hls">- Python 3.12 / Flask / SQLAlchemy / PostgreSQL</span>
+<span class="hls">- Frontend: React 18, Vite, Tailwind CSS</span>
+
+<span class="hlh">## Commands</span>
+<span class="hls">- `flask run` — dev server (port 5000)</span>
+<span class="hls">- `pytest` — unit + integration tests (hits real DB, no mocks)</span>
+<span class="hls">- `railway up` — deploy to production</span>
+
+<span class="hlh">## Architecture</span>
+<span class="hls">- `/api` — Flask blueprints, one per domain</span>
+<span class="hls">- `/models` — SQLAlchemy models</span>
+<span class="hls">- `/frontend/src` — React components</span>
+
+<span class="hlh">## Non-obvious rules</span>
+<span class="hls">- Never use `.query` API — always use `db.session.execute(select(...))`</span>
+<span class="hls">- All dates stored as UTC, displayed in Europe/London</span></pre>
+
+  <div class="highlight-box warn" style="margin-top:1rem">
+    <strong>Tip:</strong> Keep CLAUDE.md facts-only. If you find yourself writing "when Claude does X, it should also do Y" — that's a Hook, not a CLAUDE.md instruction.
+  </div>
+</div>
+
+<!-- SKILLS -->
+<div class="panel" id="panel-skills">
+  <div class="panel-header">
+    <div class="panel-icon">⚡</div>
+    <div>
+      <h2>Skills</h2>
+      <div class="subtitle">Reusable prompt programs invoked as slash commands. Each skill is a markdown file with a system prompt Claude follows when you type <code>/skill-name</code>.</div>
+      <div class="path">~/.claude/skills/ &nbsp;·&nbsp; &lt;project&gt;/.claude/skills/</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <div class="section-label">What a skill is</div>
+      <div class="rule-row">
+        <div class="rule-icon">📝</div>
+        <div>
+          <strong>A markdown file = a slash command</strong>
+          <p>Create <code>.claude/skills/my-task.md</code> → invoke with <code>/my-task</code>. The file contains the instructions Claude follows, tools it can call, and how to structure its output.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">🔁</div>
+        <div>
+          <strong>Reusable across sessions</strong>
+          <p>Unlike typing instructions in chat (which disappear), skills persist. Great for recurring workflows: code review, scenario drafting, PR creation, security audits.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">🎯</div>
+        <div>
+          <strong>Can have trigger descriptions</strong>
+          <p>Skills have a description field. Claude uses it to auto-suggest or auto-trigger the skill when your message matches the described intent — even without typing <code>/</code>.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">📦</div>
+        <div>
+          <strong>Can call tools</strong>
+          <p>A skill can instruct Claude to use Bash, Read, Edit, WebSearch, MCP tools — anything available in the session. Think of it as an agent program.</p>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Skill file anatomy</div>
+      <pre><span class="hlh">---</span>
+<span class="hlk">name:</span> <span class="hls">code-review</span>
+<span class="hlk">description:</span> <span class="hls">Review the current diff for bugs</span>
+<span class="hlk">  and simplification opportunities.</span>
+<span class="hlk">  Use when asked to review, audit, or</span>
+<span class="hlk">  check changed code.</span>
+<span class="hlk">args:</span>
+<span class="hlk">  - name:</span> <span class="hls">effort</span>
+<span class="hlk">    description:</span> <span class="hls">low/medium/high/max</span>
+<span class="hlk">    default:</span> <span class="hls">medium</span>
+<span class="hlh">---</span>
+
+<span class="hlc"># Instructions Claude follows when /code-review is invoked</span>
+
+You are a thorough code reviewer. Run `git diff` to
+see what changed. Look for:
+
+1. Correctness bugs — logic errors, off-by-ones, null
+   dereferences, race conditions
+2. Security issues — injection, unvalidated input
+3. Simplification — duplicated logic, unnecessary
+   abstractions
+
+Report findings as a markdown list. Each finding:
+- File and line number
+- What the problem is
+- Suggested fix
+
+Effort level: {{effort}}</pre>
+    </div>
+  </div>
+
+  <div class="section-label">Good use cases for skills</div>
+  <div class="grid3">
+    <div class="card">
+      <h3>🔍 Code review</h3>
+      <p>Run a structured diff analysis with consistent output format every time.</p>
+    </div>
+    <div class="card">
+      <h3>📋 Scenario drafting</h3>
+      <p>Turn a description of a business process into a structured test scenario — same format, every time.</p>
+    </div>
+    <div class="card">
+      <h3>🔒 Security audit</h3>
+      <p>Systematic OWASP-style review of changed code on demand.</p>
+    </div>
+    <div class="card">
+      <h3>📊 Report generation</h3>
+      <p>Pull data, format it, produce a Word/Excel/PDF in a repeatable way.</p>
+    </div>
+    <div class="card">
+      <h3>🚀 Deploy checklist</h3>
+      <p>Run compile check → tests → Railway deploy as a single command.</p>
+    </div>
+    <div class="card">
+      <h3>🛠️ Init / setup</h3>
+      <p>Bootstrap a new project with your exact conventions: folder structure, config, CLAUDE.md template.</p>
+    </div>
+  </div>
+
+  <div class="highlight-box success" style="margin-top:1.25rem">
+    <strong>Skill vs CLAUDE.md:</strong> If it's a standing rule ("always do X"), put it in CLAUDE.md. If it's a task you invoke on demand ("do this complex thing now"), make it a skill.
+  </div>
+
+  <div class="section-label">Building and improving skills</div>
+  <div class="rule-row">
+    <div class="rule-icon">🧪</div>
+    <div>
+      <strong>Use the <code>/skill-creator</code> meta-skill</strong>
+      <p>Built-in skill that helps you create, edit, run evals against, and benchmark skill performance. Type <code>/skill-creator</code> to enter guided mode.</p>
+    </div>
+  </div>
+</div>
+
+<!-- MEMORY -->
+<div class="panel" id="panel-memory">
+  <div class="panel-header">
+    <div class="panel-icon">🧠</div>
+    <div>
+      <h2>Memory</h2>
+      <div class="subtitle">File-based persistent facts that carry across sessions. Claude reads them when relevant so you don't repeat yourself.</div>
+      <div class="path">~/.claude/projects/&lt;project-slug&gt;/memory/</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <div class="section-label">Four memory types</div>
+
+      <div class="rule-row">
+        <div class="rule-icon">👤</div>
+        <div>
+          <strong>user</strong> — who you are
+          <p>Role, experience level, domain knowledge, communication preferences. Helps Claude pitch explanations at the right level.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">💬</div>
+        <div>
+          <strong>feedback</strong> — how to collaborate
+          <p>Corrections and confirmations. "Don't mock the DB" or "single bundled PR was right here." Saves you repeating guidance. Includes WHY so Claude can judge edge cases.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">📋</div>
+        <div>
+          <strong>project</strong> — ongoing context
+          <p>Who's doing what, why, by when. Merge freezes, compliance drivers, stakeholder constraints. Decays fast — keep updated.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">🔗</div>
+        <div>
+          <strong>reference</strong> — where to look
+          <p>Pointers to external systems. "Pipeline bugs → Linear project INGEST." "Oncall dashboard → grafana.internal/d/api-latency."</p>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <div class="section-label">Memory file format</div>
+      <pre><span class="hlh">---</span>
+<span class="hlk">name:</span> <span class="hls">feedback-no-db-mocks</span>
+<span class="hlk">description:</span> <span class="hls">Integration tests must hit a real</span>
+<span class="hlk">  database, not mocks</span>
+<span class="hlk">metadata:</span>
+<span class="hlk">  type:</span> <span class="hls">feedback</span>
+<span class="hlh">---</span>
+
+Never mock the database in tests.
+
+<span class="hlk">**Why:**</span> Prior incident where mock/prod
+divergence masked a broken migration that
+passed all tests but failed on deploy.
+
+<span class="hlk">**How to apply:**</span> Any test touching data
+should use a real test DB, not a mock or
+in-memory substitute. Flag if asked to mock.</pre>
+
+      <div class="section-label" style="margin-top:1rem">MEMORY.md index</div>
+      <pre><span class="hlh"># Memory Index</span>
+
+<span class="hls">- [User role](user_role.md) — data scientist, observability focus</span>
+<span class="hls">- [No DB mocks](feedback-no-db-mocks.md) — integration tests hit real DB</span>
+<span class="hls">- [Merge freeze](project-merge-freeze.md) — freeze begins 2026-03-05</span>
+<span class="hls">- [Bug tracker](reference-linear.md) — pipeline bugs in Linear "INGEST"</span></pre>
+
+      <div class="highlight-box warn">
+        MEMORY.md is always loaded. Keep it under ~200 lines. Memory files are loaded on demand when relevant.
+      </div>
+    </div>
+  </div>
+
+  <div class="section-label">What NOT to save in memory</div>
+  <div class="grid3">
+    <div class="card">
+      <h3 style="color:var(--accent2)">Code & architecture</h3>
+      <p>File paths, function names, patterns — derivable by reading the repo. Stale the moment code changes.</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--accent2)">Git history</h3>
+      <p>Recent changes, who-changed-what — <code>git log</code> and <code>git blame</code> are authoritative.</p>
+    </div>
+    <div class="card">
+      <h3 style="color:var(--accent2)">Current-session tasks</h3>
+      <p>In-progress work, step-by-step plans, temporary state. Use Tasks for those — they're session-scoped.</p>
+    </div>
+  </div>
+
+  <div class="highlight-box" style="margin-top:1rem">
+    <strong>Memory vs CLAUDE.md:</strong> Memory stores facts about you and the project that accumulate over time. CLAUDE.md stores standing instructions for how Claude should behave. When in doubt: if it would make sense in a team README, put it in CLAUDE.md. If it's something you'd tell a new colleague about yourself or a recent decision, save it to memory.
+  </div>
+</div>
+
+<!-- SETTINGS & HOOKS -->
+<div class="panel" id="panel-settings">
+  <div class="panel-header">
+    <div class="panel-icon">⚙️</div>
+    <div>
+      <h2>Settings &amp; Hooks</h2>
+      <div class="subtitle">JSON config executed by the harness — not read by Claude. Permissions, env vars, automated shell commands on tool events.</div>
+      <div class="path">~/.claude/settings.json &nbsp;·&nbsp; &lt;project&gt;/.claude/settings.json &nbsp;·&nbsp; settings.local.json</div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <div class="section-label">Settings files</div>
+      <div class="rule-row">
+        <div class="rule-icon">🌍</div>
+        <div>
+          <strong><code>~/.claude/settings.json</code></strong>
+          <p>Global. Applies to all projects. Good for blanket permissions (npm, git read) and personal env vars.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">📁</div>
+        <div>
+          <strong><code>&lt;project&gt;/.claude/settings.json</code></strong>
+          <p>Shared with the team (committed). Project-wide permissions, project hooks, shared env vars.</p>
+        </div>
+      </div>
+      <div class="rule-row">
+        <div class="rule-icon">🔒</div>
+        <div>
+          <strong><code>settings.local.json</code></strong>
+          <p>Personal overrides for a project — gitignored. Personal API keys, local port overrides.</p>
+        </div>
+      </div>
+
+      <div class="section-label" style="margin-top:1.25rem">Permission rules</div>
+      <pre><span class="hlk">"permissions"</span><span class="hlp">:</span> {
+  <span class="hlk">"allow"</span><span class="hlp">:</span> [
+    <span class="hls">"Bash(npm run *)"</span>,
+    <span class="hls">"Bash(git log:*)"</span>,
+    <span class="hls">"Bash(python -m py_compile *)"</span>,
+    <span class="hls">"Read(~/.ssh/*)"</span>
+  ],
+  <span class="hlk">"deny"</span><span class="hlp">:</span> [
+    <span class="hls">"Bash(rm -rf *)"</span>,
+    <span class="hls">"Bash(git push --force*)"</span>
+  ]
+}</pre>
+    </div>
+
+    <div>
+      <div class="section-label">Hooks — the automation layer</div>
+      <div class="highlight-box warn">
+        <strong>Hooks are the right answer</strong> when you want "from now on, whenever X, do Y automatically." Memory and CLAUDE.md cannot fulfil this — only hooks can.
+      </div>
+
+      <pre><span class="hlk">"hooks"</span><span class="hlp">:</span> {
+  <span class="hlk">"PreToolUse"</span><span class="hlp">:</span> [{
+    <span class="hlk">"matcher"</span><span class="hlp">:</span> <span class="hls">"Bash"</span>,
+    <span class="hlk">"hooks"</span><span class="hlp">:</span> [{
+      <span class="hlk">"type"</span><span class="hlp">:</span> <span class="hls">"command"</span>,
+      <span class="hlk">"command"</span><span class="hlp">:</span> <span class="hls">"echo 'Running bash: ' $TOOL_INPUT"</span>
+    }]
+  }],
+  <span class="hlk">"PostToolUse"</span><span class="hlp">:</span> [{
+    <span class="hlk">"matcher"</span><span class="hlp">:</span> <span class="hls">"Write|Edit"</span>,
+    <span class="hlk">"hooks"</span><span class="hlp">:</span> [{
+      <span class="hlk">"type"</span><span class="hlp">:</span> <span class="hls">"command"</span>,
+      <span class="hlk">"command"</span><span class="hlp">:</span> <span class="hls">"python -m py_compile $TOOL_INPUT_PATH"</span>
+    }]
+  }],
+  <span class="hlk">"Stop"</span><span class="hlp">:</span> [{
+    <span class="hlk">"hooks"</span><span class="hlp">:</span> [{
+      <span class="hlk">"type"</span><span class="hlp">:</span> <span class="hls">"command"</span>,
+      <span class="hlk">"command"</span><span class="hlp">:</span> <span class="hls">"notify-send 'Claude finished'"</span>
+    }]
+  }]
+}</pre>
+
+      <div class="section-label">Hook events</div>
+      <div class="pill-list">
+        <div class="pill">PreToolUse</div>
+        <div class="pill">PostToolUse</div>
+        <div class="pill">Stop</div>
+        <div class="pill">Start</div>
+        <div class="pill">SubagentStop</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="section-label" style="margin-top:1.5rem">Keybindings</div>
+  <div class="grid2">
+    <div>
+      <pre><span class="hlc">// ~/.claude/keybindings.json</span>
+[
+  {
+    <span class="hlk">"key"</span><span class="hlp">:</span> <span class="hls">"ctrl+shift+r"</span>,
+    <span class="hlk">"command"</span><span class="hlp">:</span> <span class="hls">"/code-review"</span>
+  },
+  {
+    <span class="hlk">"key"</span><span class="hlp">:</span> <span class="hls">"ctrl+shift+d"</span>,
+    <span class="hlk">"command"</span><span class="hlp">:</span> <span class="hls">"/scenario-draft"</span>
+  }
+]</pre>
+    </div>
+    <div class="card" style="align-self:start">
+      <h3>When to use keybindings</h3>
+      <p>Bind frequently-used skills or commands to keyboard shortcuts. Use the <code>/keybindings-help</code> skill or edit <code>~/.claude/keybindings.json</code> directly.</p>
+    </div>
+  </div>
+</div>
+
+<!-- SIDE BY SIDE -->
+<div class="panel" id="panel-compare">
+  <div class="panel-header">
+    <div class="panel-icon">📐</div>
+    <div>
+      <h2>Side-by-side comparison</h2>
+      <div class="subtitle">When to use each mechanism — at a glance.</div>
+    </div>
+  </div>
+
+  <table class="comparison-table">
+    <thead>
+      <tr>
+        <th>Mechanism</th>
+        <th>Scope</th>
+        <th>Executed by</th>
+        <th>Best for</th>
+        <th>Not for</th>
+      </tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><strong>Global CLAUDE.md</strong><br><small style="color:var(--muted)">~/.claude/CLAUDE.md</small></td>
+        <td><span class="badge global">All projects</span></td>
+        <td>Claude (reads)</td>
+        <td>Personal style prefs, OS/env notes, cross-project rules</td>
+        <td>Project-specific details</td>
+      </tr>
+      <tr>
+        <td><strong>Project CLAUDE.md</strong><br><small style="color:var(--muted)">&lt;repo&gt;/CLAUDE.md</small></td>
+        <td><span class="badge project">This repo</span></td>
+        <td>Claude (reads)</td>
+        <td>Stack, commands, architecture, non-obvious constraints</td>
+        <td>Ephemeral tasks, automation</td>
+      </tr>
+      <tr>
+        <td><strong>Skills</strong><br><small style="color:var(--muted)">.claude/skills/</small></td>
+        <td><span class="badge global">Global</span> / <span class="badge project">Project</span></td>
+        <td>Claude (follows)</td>
+        <td>Recurring multi-step tasks invoked on demand</td>
+        <td>Standing rules, one-off instructions</td>
+      </tr>
+      <tr>
+        <td><strong>Memory</strong><br><small style="color:var(--muted)">~/.claude/projects/…/memory/</small></td>
+        <td><span class="badge global">Global</span></td>
+        <td>Claude (reads)</td>
+        <td>Facts about you, feedback, project decisions, references</td>
+        <td>Code patterns, git history, session tasks</td>
+      </tr>
+      <tr>
+        <td><strong>Hooks</strong><br><small style="color:var(--muted)">settings.json → hooks</small></td>
+        <td><span class="badge global">Global</span> / <span class="badge project">Project</span></td>
+        <td>Harness (executes)</td>
+        <td>"Whenever X, automatically run Y" shell commands</td>
+        <td>Changing Claude's reasoning or output style</td>
+      </tr>
+      <tr>
+        <td><strong>Permissions</strong><br><small style="color:var(--muted)">settings.json → permissions</small></td>
+        <td><span class="badge global">Global</span> / <span class="badge project">Project</span></td>
+        <td>Harness (enforces)</td>
+        <td>Pre-approve or block tool calls without prompting</td>
+        <td>Changing behaviour — only gates tool use</td>
+      </tr>
+      <tr>
+        <td><strong>Keybindings</strong><br><small style="color:var(--muted)">~/.claude/keybindings.json</small></td>
+        <td><span class="badge global">Global</span></td>
+        <td>Harness</td>
+        <td>Keyboard shortcuts for frequent commands/skills</td>
+        <td>Anything that isn't a shortcut</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="section-label" style="margin-top:1.75rem">Decision guide — "where should this go?"</div>
+
+  <div class="rule-row">
+    <div class="rule-icon">🤔</div>
+    <div>
+      <strong>"I want Claude to always write code a certain way"</strong>
+      <p>→ CLAUDE.md (global for universal, project for repo-specific)</p>
+    </div>
+  </div>
+  <div class="rule-row">
+    <div class="rule-icon">🤔</div>
+    <div>
+      <strong>"I want to run the same complex task repeatedly with one command"</strong>
+      <p>→ Skill — write the instructions once, invoke with /skill-name</p>
+    </div>
+  </div>
+  <div class="rule-row">
+    <div class="rule-icon">🤔</div>
+    <div>
+      <strong>"I told Claude something important last session and it forgot"</strong>
+      <p>→ Memory — ask Claude to "remember" it, or use /consolidate-memory to clean up</p>
+    </div>
+  </div>
+  <div class="rule-row">
+    <div class="rule-icon">🤔</div>
+    <div>
+      <strong>"From now on, whenever Claude edits a file, run the linter"</strong>
+      <p>→ Hook (PostToolUse on Write/Edit) — memory and CLAUDE.md cannot fulfil automation</p>
+    </div>
+  </div>
+  <div class="rule-row">
+    <div class="rule-icon">🤔</div>
+    <div>
+      <strong>"I'm tired of approving the same npm/git commands every time"</strong>
+      <p>→ Permissions allowlist in settings.json — use /fewer-permission-prompts skill to auto-generate it</p>
+    </div>
+  </div>
+  <div class="rule-row">
+    <div class="rule-icon">🤔</div>
+    <div>
+      <strong>"I want /code-review one keypress away"</strong>
+      <p>→ Keybinding in ~/.claude/keybindings.json</p>
+    </div>
+  </div>
+</div>
+
+</div><!-- end content-area -->
+
+<script>
+function switchTab(id) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  const tabs = document.querySelectorAll('.tab');
+  const order = ['overview','claudemd','skills','memory','settings','compare'];
+  const idx = order.indexOf(id);
+  if (idx >= 0) tabs[idx].classList.add('active');
+  const panel = document.getElementById('panel-' + id);
+  if (panel) panel.classList.add('active');
+}
+</script>
+</body>
+</html>

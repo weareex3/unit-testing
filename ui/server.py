@@ -2384,8 +2384,10 @@ def api_coverage(request: Request, scenario_id: str, script: str = ""):
 
 
 @app.get("/api/batch/plan")
-def api_batch_plan(request: Request, script: str = ""):
+def api_batch_plan(request: Request, script: str = "", only: str = ""):
     scenarios = _load_scenarios(script or None)
+    if only:  # "Run with Claude" on a single scenario — run just that one
+        scenarios = [s for s in scenarios if s.scenario_id == only]
     if not script or not scenarios:
         return JSONResponse({"ok": False, "error": "Select a script before running all."}, status_code=400)
     library = _load_step_library()
@@ -2866,7 +2868,10 @@ async def api_batch_start(request: Request):
     modes = body.get("modes") if isinstance(body.get("modes"), dict) else {}
     lib_tasks = body.get("lib_tasks") if isinstance(body.get("lib_tasks"), dict) else {}
     confidences = body.get("confidences") if isinstance(body.get("confidences"), dict) else {}
+    only = str(body.get("only", "")).strip()
     scenarios = _load_scenarios(script or None)
+    if only:  # "Run with Claude" on a single scenario
+        scenarios = [s for s in scenarios if s.scenario_id == only]
     if not script or not scenarios:
         return JSONResponse({"ok": False, "error": "Select a script before running all."}, status_code=400)
     user = _current_user(request)

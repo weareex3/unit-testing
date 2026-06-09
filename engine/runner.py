@@ -1531,38 +1531,59 @@ _SOM_MARK_JS = r"""
     if (!t && el.tagName.toLowerCase() === 'input') t = (el.getAttribute('placeholder') || el.getAttribute('name') || 'field');
     return t || el.tagName.toLowerCase();
   }
+  var CLICK_SEL = 'button,a,input,select,textarea,[role=button],[role=link],[role=menuitem],'
+    + '[role=menuitemcheckbox],[role=menuitemradio],[role=tab],[role=option],[role=checkbox],[role=switch],[onclick]';
   function clickable(el){
     const tag = el.tagName ? el.tagName.toLowerCase() : '';
     if (['button','a','input','select','textarea'].includes(tag)) return true;
     const role = el.getAttribute && el.getAttribute('role');
-    if (role && ['button','link','menuitem','tab','checkbox','option','switch'].includes(role)) return true;
+    if (role && ['button','link','menuitem','menuitemcheckbox','menuitemradio','tab','checkbox','option','switch'].includes(role)) return true;
     if (el.hasAttribute && el.hasAttribute('onclick')) return true;
-    try { if (getComputedStyle(el).cursor === 'pointer') return true; } catch(e){}
+    // cursor:pointer is a WEAK signal — only count it for a leaf (no clickable child),
+    // so wrapper divs around a menu don't get marked instead of the real items.
+    try {
+      if (getComputedStyle(el).cursor === 'pointer' && !el.querySelector(CLICK_SEL)) return true;
+    } catch(e){}
     return false;
   }
+  // Prefer the innermost actionable node: skip an element that CONTAINS another clickable.
+  function isContainer(el){
+    try { return !!el.querySelector(CLICK_SEL); } catch(e){ return false; }
+  }
+  // Items inside an open menu/dropdown/dialog are the priority targets.
+  function inOverlay(el){
+    try { return !!el.closest('[role=menu],[role=listbox],[role=dialog],[aria-modal="true"]'); }
+    catch(e){ return false; }
+  }
+  const cands = [];
   function walk(root){
     let els; try { els = root.querySelectorAll('*'); } catch(e){ return; }
     for (const el of els){
       if (el.shadowRoot) walk(el.shadowRoot);
-      if (i >= 70) continue;
-      if (!clickable(el)) continue;
+      if (!clickable(el) || isContainer(el)) continue;
       let r; try { r = el.getBoundingClientRect(); } catch(e){ continue; }
       if (r.width < 6 || r.height < 6) continue;
       if (r.bottom < 0 || r.top > H || r.right < 0 || r.left > W) continue;
-      const cx = Math.round(r.left + r.width/2), cy = Math.round(r.top + r.height/2);
-      const key = cx + 'x' + cy; if (seen.has(key)) continue; seen.add(key);
-      i++;
-      try { el.setAttribute('data-som', i); } catch(e){}   // re-query tag for reliable actuation
-      out.push({i: i, x: cx, y: cy, label: lbl(el)});
-      const b = document.createElement('div'); b.className = '__som_badge'; b.textContent = i;
-      Object.assign(b.style, {position:'fixed', left:Math.max(0,r.left)+'px', top:Math.max(0,r.top)+'px',
-        zIndex:2147483647, background:'#e11d48', color:'#fff', font:'bold 11px sans-serif',
-        padding:'0 4px', borderRadius:'4px', pointerEvents:'none', lineHeight:'15px',
-        boxShadow:'0 0 0 1px #fff'});
-      document.body.appendChild(b);
+      cands.push({el: el, cx: Math.round(r.left + r.width/2), cy: Math.round(r.top + r.height/2),
+                  left: r.left, top: r.top, overlay: inOverlay(el)});
     }
   }
   walk(document.body);
+  // Open menus/dialogs first so dropdown items always get numbered (never cut by the cap).
+  cands.sort(function(a,b){ return (b.overlay?1:0) - (a.overlay?1:0); });
+  for (const c of cands){
+    if (i >= 100) break;
+    const key = c.cx + 'x' + c.cy; if (seen.has(key)) continue; seen.add(key);
+    i++;
+    try { c.el.setAttribute('data-som', i); } catch(e){}   // re-query tag for reliable actuation
+    out.push({i: i, x: c.cx, y: c.cy, label: lbl(c.el)});
+    const b = document.createElement('div'); b.className = '__som_badge'; b.textContent = i;
+    Object.assign(b.style, {position:'fixed', left:Math.max(0,c.left)+'px', top:Math.max(0,c.top)+'px',
+      zIndex:2147483647, background:'#e11d48', color:'#fff', font:'bold 11px sans-serif',
+      padding:'0 4px', borderRadius:'4px', pointerEvents:'none', lineHeight:'15px',
+      boxShadow:'0 0 0 1px #fff'});
+    document.body.appendChild(b);
+  }
   return out;
 }
 """
@@ -1598,6 +1619,23 @@ def _resolve_marks(cmds: str, marks: list) -> str:
             n = int(mo.group(1))
             mk = by_i.get(n)
             out.append(f"CLICK_MARK: {n} | {mk['x']}, {mk['y']}" if mk else line)
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
+def _annotate_marks(cmds: str, marks: list) -> str:
+    """For display in the confirm panel: turn 'CLICK_MARK: N' into 'CLICK: <label> (#N)'
+    so the user sees the REAL element it will click, and can catch a wrong target."""
+    import re as _re
+    by_i = {int(m["i"]): m for m in marks if "i" in m}
+    out = []
+    for line in (cmds or "").splitlines():
+        mo = _re.match(r"\s*CLICK_MARK:\s*#?(\d+)", line, _re.I)
+        if mo:
+            mk = by_i.get(int(mo.group(1)))
+            label = (mk.get("label") if mk else "") or "?"
+            out.append(f"CLICK: {label}  (#{mo.group(1)})")
         else:
             out.append(line)
     return "\n".join(out)
@@ -1687,7 +1725,9 @@ def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None
                 # CONFIRM-EACH-MOVE training mode: surface the proposed move and wait
                 # for the user to Confirm, Redirect (plain English), or Stop.
                 if confirm_step and cmds.strip() and not done:
-                    decision = confirm_step(reasoning, cmds, shot_url) or {}
+                    # Show the REAL target (mark label) so the user can catch a wrong click.
+                    display_cmds = _annotate_marks(cmds, marks) if grounding else cmds
+                    decision = confirm_step(reasoning, display_cmds, shot_url) or {}
                     act = (decision.get("action") or "confirm").lower()
                     if act == "stop":
                         result.error = "Stopped by user"

@@ -93,6 +93,9 @@
       </button>
       <button id="supervised-btn" onclick="startLive()" class="btn" style="background:#005bbf;color:rgba(255,255,255,0.9);border-radius:0;border:none;border-left:1px solid rgba(255,255,255,0.15);font-size:12px;padding:7px 14px;">Step-by-step</button>
     </div>
+    <a id="claude-btn" href="/batch?script={{ selected_script|urlencode }}&only={{ scenario.scenario_id|urlencode }}"
+       class="btn" style="background:linear-gradient(135deg,#b9954f,#7d5d22);color:#fff;font-size:12px;font-weight:700;padding:7px 16px;border-radius:9px;text-decoration:none;display:inline-flex;align-items:center;gap:6px;border:none;"
+       title="Let Claude attempt or guide this task (plan, precision targeting, verification)">✦ Run with Claude</a>
   </div>
 </div>
 
