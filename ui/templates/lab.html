@@ -70,6 +70,17 @@
         </div>
       </div>
 
+      <div id="lab-done" style="display:none;margin-top:16px;padding:16px;border-radius:12px;border:2px solid #16a34a;background:#f0fdf4;">
+        <div style="font-size:11px;font-weight:850;color:#15803d;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;">Claude thinks it's finished — your approval needed</div>
+        <div style="font-size:14px;color:var(--ink);margin-bottom:10px;">Check the screen below. Approve to finish (and save), or tell it what's still left and it'll keep going.</div>
+        <img id="lab-done-img" style="width:100%;border-radius:10px;border:1px solid var(--line);margin-bottom:10px;display:none;" />
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <button id="lab-done-approve" class="btn btn-primary" type="button">✓ Approve &amp; finish</button>
+          <input id="lab-done-more" class="input" type="text" placeholder="…or tell it what's still left (e.g. type the name, then continue)" style="flex:1;min-width:220px;" />
+          <button id="lab-done-continue" class="btn" type="button">Keep going</button>
+        </div>
+      </div>
+
       <div id="lab-result" style="display:none;margin-top:20px;">
         <div class="section-label" style="margin-bottom:8px;">Claude's moves</div>
         <div id="lab-steps" style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;"></div>
@@ -132,7 +143,22 @@
   const cfRedirect = document.getElementById('lab-confirm-redirect');
   const cfSend = document.getElementById('lab-confirm-send');
   const savePanel = document.getElementById('lab-save');
-  let poll = null, runId = null, awaitingResume = false, cfResume = false;
+  const donePanel = document.getElementById('lab-done');
+  const doneImg = document.getElementById('lab-done-img');
+  const doneApprove = document.getElementById('lab-done-approve');
+  const doneMore = document.getElementById('lab-done-more');
+  const doneContinue = document.getElementById('lab-done-continue');
+  let poll = null, runId = null, awaitingResume = false, cfResume = false, doneResume = false;
+
+  async function sendDone(action, text){
+    doneResume = true;
+    donePanel.style.display = 'none';
+    status.textContent = action === 'continue' ? 'Keeping going…' : 'Finishing…';
+    try { await fetch('/api/lab/confirm', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({action, text: text||''})}); } catch(e){}
+  }
+  doneApprove.addEventListener('click', () => sendDone('approve'));
+  doneContinue.addEventListener('click', () => { const t = doneMore.value.trim(); doneMore.value=''; sendDone('continue', t); });
+  doneMore.addEventListener('keydown', e => { if (e.key === 'Enter') doneContinue.click(); });
 
   async function sendConfirm(action, text){
     cfResume = true;
@@ -163,7 +189,8 @@
     stopBtn.disabled = false;
     result.style.display = 'block';
     savePanel.style.display = 'none';
-    cfResume = false;
+    donePanel.style.display = 'none';
+    cfResume = false; doneResume = false;
     stepsBox.innerHTML = '<div style="font-size:13px;color:#9a948a;">Logging in and reading the screen…</div>';
     video.style.display = 'none';
     status.textContent = 'Claude is working… (' + modelSel.options[modelSel.selectedIndex].text + ')';
@@ -215,14 +242,20 @@
         else { cfImg.style.display = 'none'; }
         cfPanel.style.display = 'block';
         status.textContent = 'Waiting for your confirmation…';
+      } else if (s.status === 'awaiting_done' && !doneResume) {
+        if (s.screenshot_url) { doneImg.src = s.screenshot_url; doneImg.style.display = 'block'; }
+        else { doneImg.style.display = 'none'; }
+        donePanel.style.display = 'block';
+        status.textContent = 'Claude thinks it’s done — approve or send it back…';
       } else if (s.status === 'running') {
-        awaitingResume = false; cfResume = false;
+        awaitingResume = false; cfResume = false; doneResume = false;
         if (askPanel.style.display !== 'none') askPanel.style.display = 'none';
         if (cfPanel.style.display !== 'none') cfPanel.style.display = 'none';
+        if (donePanel.style.display !== 'none') donePanel.style.display = 'none';
       }
       if (s.status === 'done' || s.status === 'error') {
         clearInterval(poll); btn.disabled = false; stopBtn.style.display = 'none';
-        askPanel.style.display = 'none'; cfPanel.style.display = 'none';
+        askPanel.style.display = 'none'; cfPanel.style.display = 'none'; donePanel.style.display = 'none';
         status.textContent = s.status === 'done' ? 'Done.' : ('Stopped: ' + (s.error || 'agent stopped'));
         if (runId) {
           const v = await (await fetch('/api/lab/video/' + encodeURIComponent(runId))).json().catch(()=>({}));

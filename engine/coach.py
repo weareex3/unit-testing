@@ -312,9 +312,15 @@ def get_agent_actions(screenshot_path: str, goal: str, history: list, preview: b
     notes_section = f"\n\nAccumulated SF navigation knowledge:\n{notes}" if notes else ""
     hist = "\n".join(history[-12:]) if history else "(nothing yet — this is the first step)"
     preview_rule = (
-        "\n- PREVIEW MODE: This is a dry run. Navigate and fill fields to demonstrate the task, "
-        "but NEVER click Save / Submit / Confirm / OK or anything that commits a change. When you "
-        "reach the point just before committing, set done=true instead of clicking it."
+        "\n- PREVIEW MODE: This is a dry run, but you must still carry out the WHOLE task right up to the "
+        "final save. Typing into fields, searching, selecting from dropdowns, and clicking navigational "
+        "OK/Confirm buttons (e.g. the 'Select Target User' / Proxy Now OK, opening an edit form) are NOT "
+        "commits — ALWAYS do them so the task actually progresses. The ONLY thing you must not click is "
+        "the FINAL button that writes the data change (the Save / Submit / Confirm on the edit form you "
+        "were asked to change). Set done=true ONLY when every field is filled and you are literally one "
+        "click — that final Save — away. Do NOT set done=true just because a field or dialog is in front "
+        "of you: fill it in first. Leaving a required field (like the proxy target name) blank is a FAIL, "
+        "not a valid stopping point."
         if preview else ""
     )
     # Set-of-marks: a numbered list of every clickable element on screen (badges shown

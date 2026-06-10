@@ -3403,6 +3403,27 @@ async def api_lab_run(request: Request):
         _ACTIVE_RUNS["agent"] = {"status": "running", "run_id": run_id, "user": user, "goal": goal}
         return d
 
+    def _confirm_done():
+        """Approval-before-end gate: the agent thinks it's finished. Pause, show the
+        final screen, and wait for the user to Approve (finish) or say keep going
+        (with optional plain-English instruction). Returns the decision dict."""
+        import time as _t
+        last_shot = steps_log[-1]["screenshot_url"] if steps_log else ""
+        _AGENT_IO["confirm"] = None
+        _ACTIVE_RUNS["agent"] = {"status": "awaiting_done", "run_id": run_id, "user": user, "goal": goal,
+                                 "screenshot_url": last_shot}
+        waited = 0.0
+        while _AGENT_IO.get("confirm") is None:
+            if _AGENT_STOP.get("stop"):
+                return {"action": "approve"}
+            _t.sleep(0.5); waited += 0.5
+            if waited > 1800:
+                return {"action": "approve"}
+        d = _AGENT_IO.get("confirm") or {}
+        _AGENT_IO["confirm"] = None
+        _ACTIVE_RUNS["agent"] = {"status": "running", "run_id": run_id, "user": user, "goal": goal}
+        return d
+
     def _run():
         try:
             result = run_agent_goal(goal, preview=True, runs_root=RUNS_DIR, run_id_override=run_id,
@@ -3410,6 +3431,7 @@ async def api_lab_run(request: Request):
                                     check_stop=lambda: _AGENT_STOP.get("stop"),
                                     ask_user=_ask_user,
                                     confirm_step=_confirm_step if confirm_mode else None,
+                                    confirm_done=_confirm_done,
                                     grounding=grounding_mode, model=model)
             _LAB_LEARNED["commands"] = list(getattr(result, "agent_commands", []) or [])
             _write("done")
