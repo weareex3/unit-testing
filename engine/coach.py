@@ -7,8 +7,55 @@ so every new client deployment starts with accumulated SF knowledge.
 import base64
 import json
 import os
+import re
 from datetime import datetime
 from pathlib import Path
+
+
+def _extract_json_obj(raw: str) -> dict | None:
+    """Pull a JSON object out of a model reply that may be wrapped in ``` fences
+    or surrounded by prose (newer models often add a sentence before/after).
+    Returns the parsed dict, or None if nothing parses."""
+    if not raw:
+        return None
+    s = raw.strip()
+    # Strip ```json ... ``` or ``` ... ``` fences if present.
+    fence = re.search(r"```(?:json)?\s*(.*?)```", s, re.DOTALL)
+    if fence:
+        s = fence.group(1).strip()
+    try:
+        return json.loads(s)
+    except Exception:
+        pass
+    # Fall back to the first balanced {...} block.
+    start = s.find("{")
+    if start == -1:
+        return None
+    depth = 0
+    in_str = False
+    esc = False
+    for i in range(start, len(s)):
+        c = s[i]
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                try:
+                    return json.loads(s[start:i + 1])
+                except Exception:
+                    return None
+    return None
 
 _APP_ROOT = Path(__file__).resolve().parent.parent
 # Learned SF navigation knowledge lives on the /data volume when present so it
@@ -372,7 +419,7 @@ Reply with ONLY valid JSON:
         print(f"  [agent] model={model}")
         msg = client.messages.create(
             model=model,
-            max_tokens=900,
+            max_tokens=1500,
             system=(
                 "You are a world-class SAP SuccessFactors UI automation expert. You read a screenshot "
                 "and know exactly how to navigate — module picker, proxy, Employee Central, Recruiting, "
@@ -383,11 +430,17 @@ Reply with ONLY valid JSON:
                 {"type": "text", "text": prompt},
             ]}],
         )
-        raw = msg.content[0].text.strip()
-        if raw.startswith("```"):
-            raw = raw.split("```")[1]
-            raw = raw[4:] if raw.startswith("json") else raw
-        data = json.loads(raw.strip())
+        # Some models (Mythos-class / extended-thinking) return a thinking block
+        # FIRST, so content[0] isn't the text. Concatenate every text block.
+        raw = "".join(
+            getattr(b, "text", "") for b in msg.content if getattr(b, "type", "") == "text"
+        ).strip()
+        if not raw:
+            raw = "".join(getattr(b, "text", "") for b in msg.content).strip()
+        data = _extract_json_obj(raw)
+        if data is None:
+            print(f"  [agent] could not parse JSON from model reply: {raw[:300]!r}")
+            return None
         return {
             "reasoning": str(data.get("reasoning", ""))[:240],
             "commands": str(data.get("commands", "")),
