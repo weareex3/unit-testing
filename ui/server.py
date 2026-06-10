@@ -643,6 +643,46 @@ def _save_statuses(data: dict) -> None:
     STATUS_FILE.write_text(json.dumps(data, indent=2))
 
 
+def _reset_scenario_evidence(scenario_ids) -> None:
+    """RULE: a freshly-uploaded test script starts clean. Wipe prior run evidence
+    (videos/screenshots/last-run logs/statuses) for its scenarios, so deleting a
+    script and re-uploading the same workbook doesn't show stale old runs."""
+    ids = {str(s) for s in (scenario_ids or []) if s}
+    if not ids:
+        return
+    import shutil
+    for sid in ids:                                   # per-scenario last-run logs
+        try:
+            (RUNS_DIR / f"{sid}_last_run.json").unlink()
+        except Exception:
+            pass
+    try:                                              # statuses
+        st = _load_statuses()
+        if any(sid in st for sid in ids):
+            for sid in ids:
+                st.pop(sid, None)
+            _save_statuses(st)
+    except Exception:
+        pass
+    try:                                              # run folders (videos/screenshots/audit)
+        for run_dir in RUNS_DIR.iterdir():
+            if not run_dir.is_dir():
+                continue
+            belongs = any(run_dir.name.endswith("_" + sid) for sid in ids)
+            if not belongs and (run_dir / "steps.json").exists():
+                try:
+                    belongs = json.loads((run_dir / "steps.json").read_text()).get("scenario_id") in ids
+                except Exception:
+                    belongs = False
+            if belongs:
+                try:
+                    shutil.rmtree(run_dir)
+                except Exception:
+                    pass
+    except Exception:
+        pass
+
+
 def _step_status(scenario_id: str, step_id: str) -> str:
     return _load_statuses().get(scenario_id, {}).get(step_id, "not_tested")
 
@@ -1879,6 +1919,7 @@ async def vault_upload(request: Request, file: UploadFile = File(...), module: s
         "uploaded_at": _utc_now(),
     }
     _save_vault_index(index)
+    _reset_scenario_evidence(new_ids)   # fresh script → fresh start (no stale runs/videos)
     return RedirectResponse("/vault", status_code=303)
 
 
