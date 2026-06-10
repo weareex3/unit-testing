@@ -146,6 +146,13 @@ _LAB_LEARNED: dict[str, object] = {"run_id": "", "commands": []}
 _BATCH_AGENT_IO: dict[str, object] = {"answer": None, "decision": None}
 _BATCH_RUNS: dict[str, dict] = {}
 
+# Selectable agent-brain models for the Testing Hub A/B toggle. label -> model id.
+_AGENT_MODELS: dict[str, str] = {
+    "claude-opus-4-8": "Opus 4.8 (default)",
+    "claude-fable-5": "Fable 5 (new)",
+}
+_AGENT_MODEL_DEFAULT = "claude-opus-4-8"
+
 # Pause/resume state: scenario_id -> {event, fix}
 _PAUSE_EVENTS: dict[str, threading.Event] = {}
 _PAUSE_FIX: dict[str, dict | None] = {}
@@ -3309,6 +3316,8 @@ def testing_hub(request: Request):
             "client_id": CLIENT_ID,
             "current_user": _current_user(request),
             "active": "lab",
+            "agent_models": _AGENT_MODELS,
+            "agent_model_default": _AGENT_MODEL_DEFAULT,
         },
     )
 
@@ -3325,6 +3334,9 @@ async def api_lab_run(request: Request):
     goal = str(body.get("goal", "")).strip()
     confirm_mode = bool(body.get("confirm"))
     grounding_mode = bool(body.get("grounding"))
+    model = str(body.get("model", "")).strip()
+    if model not in _AGENT_MODELS:
+        model = "claude-opus-4-8"
     if not goal:
         return JSONResponse({"ok": False, "error": "Describe what to do first."}, status_code=400)
     if _ACTIVE_RUNS.get("agent", {}).get("status") in ("running", "awaiting_confirm", "waiting_input"):
@@ -3398,7 +3410,7 @@ async def api_lab_run(request: Request):
                                     check_stop=lambda: _AGENT_STOP.get("stop"),
                                     ask_user=_ask_user,
                                     confirm_step=_confirm_step if confirm_mode else None,
-                                    grounding=grounding_mode)
+                                    grounding=grounding_mode, model=model)
             _LAB_LEARNED["commands"] = list(getattr(result, "agent_commands", []) or [])
             _write("done")
             _ACTIVE_RUNS["agent"] = {"status": "done", "run_id": run_id, "passed": result.passed,

@@ -250,7 +250,7 @@ Return ONLY valid JSON:
 
 # ── Free-form agent ("describe what you want, Claude does it") ────────────────
 def get_agent_actions(screenshot_path: str, goal: str, history: list, preview: bool = True,
-                      marks: list | None = None) -> dict | None:
+                      marks: list | None = None, model: str = "claude-opus-4-8") -> dict | None:
     """Autonomous agent step: given a plain-English GOAL, the current screenshot,
     and what's been done so far, decide the next 1-3 browser actions. Returns
     {"reasoning": str, "commands": str, "done": bool} or None on error.
@@ -369,8 +369,9 @@ Reply with ONLY valid JSON:
   "commands": "<command lines, newline-separated; empty if done or if asking>",
   "ask": "<a short who/what question if you need a value to proceed, else empty>",
   "done": <true|false>}}"""
+        print(f"  [agent] model={model}")
         msg = client.messages.create(
-            model="claude-opus-4-8",
+            model=model,
             max_tokens=900,
             system=(
                 "You are a world-class SAP SuccessFactors UI automation expert. You read a screenshot "

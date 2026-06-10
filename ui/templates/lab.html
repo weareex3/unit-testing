@@ -35,6 +35,15 @@
       <label style="display:block;margin-bottom:12px;font-size:13px;color:var(--ink);cursor:pointer;">
         <input type="checkbox" id="lab-grounding" style="vertical-align:middle;margin-right:6px;"> Precision targeting <span style="color:var(--muted);">(set-of-marks — numbers every clickable so it picks the right one instead of guessing pixels)</span>
       </label>
+      <label style="display:block;margin-bottom:14px;font-size:13px;color:var(--ink);">
+        Agent brain
+        <select id="lab-model" class="input" style="display:inline-block;width:auto;margin-left:8px;padding:4px 8px;min-height:auto;">
+          {% for mid, mlabel in agent_models.items() %}
+          <option value="{{ mid }}"{% if mid == agent_model_default %} selected{% endif %}>{{ mlabel }}</option>
+          {% endfor %}
+        </select>
+        <span style="color:var(--muted);">— A/B test: same task, swap the model that decides each move</span>
+      </label>
       <button id="lab-run" class="btn btn-primary" type="button" style="min-height:42px;">▶ Let Claude do it (preview, no save)</button>
       <button id="lab-stop" class="btn btn-danger" type="button" style="min-height:42px;display:none;margin-left:8px;">■ Stop</button>
       <span id="lab-status" style="margin-left:12px;font-size:13px;color:var(--muted);"></span>
@@ -114,6 +123,7 @@
   const video = document.getElementById('lab-video');
   const confirmMode = document.getElementById('lab-confirm-mode');
   const groundingMode = document.getElementById('lab-grounding');
+  const modelSel = document.getElementById('lab-model');
   const cfPanel = document.getElementById('lab-confirm');
   const cfReason = document.getElementById('lab-confirm-reason');
   const cfCmd = document.getElementById('lab-confirm-cmd');
@@ -156,11 +166,11 @@
     cfResume = false;
     stepsBox.innerHTML = '<div style="font-size:13px;color:#9a948a;">Logging in and reading the screen…</div>';
     video.style.display = 'none';
-    status.textContent = 'Claude is working…';
+    status.textContent = 'Claude is working… (' + modelSel.options[modelSel.selectedIndex].text + ')';
     try {
       const res = await fetch('/api/lab/run', {
         method: 'POST', headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({goal, confirm: confirmMode.checked, grounding: groundingMode.checked})
+        body: JSON.stringify({goal, confirm: confirmMode.checked, grounding: groundingMode.checked, model: modelSel.value})
       });
       const d = await res.json();
       if (!d.ok) { status.textContent = d.error || 'Could not start'; btn.disabled = false; stopBtn.style.display = 'none'; return; }

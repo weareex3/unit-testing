@@ -1678,7 +1678,8 @@ def _annotate_marks(cmds: str, marks: list) -> str:
 def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None",
                    run_id_override: str | None = None, step_done_callback=None,
                    max_iters: int = 12, check_stop=None, ask_user=None, confirm_step=None,
-                   confirm_done=None, grounding: bool = False) -> ScenarioResult:
+                   confirm_done=None, grounding: bool = False,
+                   model: str = "claude-opus-4-8") -> ScenarioResult:
     """Free-form autonomous agent (Testing Hub): given a plain-English GOAL, log in
     to SF and loop screenshot -> Claude decides next actions -> execute, until the
     goal is done or we hit the iteration cap. No script, no saved commands. Records
@@ -1732,7 +1733,7 @@ def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None
                 except Exception:
                     shot = ""
                 plan = get_agent_actions(shot, goal, history, preview=preview,
-                                         marks=(marks if grounding else None))
+                                         marks=(marks if grounding else None), model=model)
                 if not plan:
                     if step_done_callback:
                         step_done_callback(f"agent-{i:02d}", False, "Agent could not decide a next step", "")
