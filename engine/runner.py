@@ -13,7 +13,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 from playwright.sync_api import sync_playwright, Page
 
 from models.dataclasses import TestScenario, StepResult, ScenarioResult
-from engine.coach import get_step_guidance, get_vision_commands, verify_step_result, save_successful_pattern
+from engine.coach import get_step_guidance, get_vision_commands, verify_expected_result, save_successful_pattern
 from engine.context_extractor import (extract_from_text, substitute, step_produces,
                                        normalize_placeholders, resolve_dynamic_tokens)
 from engine.visual_verifier import verify_step as _verify_step
@@ -375,9 +375,9 @@ def run_scenario(
                 # (verifier error / no API key) returns ok=True and does NOT block.
                 # Only gates fully-automated runs — manual / live steps are driven by
                 # the human and aren't second-guessed.
-                # TRUST SAVED COMMANDS (restores the 05-19 behaviour — commit
-                # 8c6ff72 "Revert verify_step_result on direct commands — was failing
-                # working proxy steps"). A step that ran a recorded/saved command is
+                # TRUST SAVED COMMANDS (restores the 05-19 behaviour — commit 8c6ff72
+                # reverted step-verification on direct commands; it was failing
+                # working proxy steps). A step that ran a recorded/saved command is
                 # NOT failed by the verifier; it just runs and completes. The verifier
                 # only GATES AI-guessed (non-direct) steps to catch fake passes there.
                 _ran_direct = _has_direct_commands(step_feedback)
@@ -682,14 +682,18 @@ def _run_step(page: Page, step, output_dir: str, feedback: str = "", use_feedbac
                 post_shot = os.path.join(output_dir, f"{step.step_id}_post.png")
                 try:
                     page.screenshot(path=post_shot, full_page=False)
-                    if verify_step_result(post_shot, step.expected_result):
-                        return result
-                    else:
+                    verdict = verify_expected_result(post_shot, step.expected_result)
+                    if verdict["verdict"] == "fail":
                         print(f"  [vision] commands ran but expected result not achieved — retrying")
                         result = StepResult(step_id=step.step_id, passed=False,
                                             error_message="Vision commands completed but expected result not visible on screen",
                                             duration_s=round(time.time() - t0, 2),
                                             screenshot_path=post_shot)
+                    else:
+                        # pass, or needs_review (scenario-level gate + human approval catch it)
+                        if verdict["verdict"] == "needs_review":
+                            print(f"  [vision] verifier unsure: {verdict['reason']} — not blocking")
+                        return result
                 except Exception:
                     return result  # screenshot failed — trust the result
             print(f"  [vision] commands failed — falling back to keyword dispatch")

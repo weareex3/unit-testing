@@ -189,49 +189,6 @@ Output ONLY commands. No explanation, no markdown, no blank lines between comman
         return None
 
 
-def verify_step_result(screenshot_path: str, step_expected: str) -> bool:
-    """Ask Claude to check if the expected result is actually visible on screen.
-
-    Returns True if the expected result is achieved, False if not.
-    Falls back to True (don't block) if no API key or screenshot missing.
-    """
-    key = os.getenv("ANTHROPIC_API_KEY")
-    if not key:
-        return True
-    shot = Path(screenshot_path)
-    if not shot.exists():
-        return True
-
-    try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=key)
-        img_data = base64.standard_b64encode(shot.read_bytes()).decode()
-
-        msg = client.messages.create(
-            model="claude-sonnet-4-6",
-            max_tokens=50,
-            messages=[{
-                "role": "user",
-                "content": [
-                    {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img_data}},
-                    {"type": "text", "text": (
-                        f"Look at this screenshot of SAP SuccessFactors.\n"
-                        f"Expected result: {step_expected}\n\n"
-                        f"Does the screenshot show this expected result has been achieved? "
-                        f"Answer only YES or NO."
-                    )},
-                ],
-            }],
-        )
-        answer = msg.content[0].text.strip().upper()
-        print(f"  [verify] expected='{step_expected[:60]}' → {answer}")
-        return answer.startswith("YES")
-
-    except Exception as exc:
-        print(f"  [verify] error: {exc} — defaulting to pass")
-        return True
-
-
 def get_step_guidance(screenshot_path: str, step_action: str, step_expected: str, feedback: str) -> dict | None:
     """Legacy retry coach — used when a step has already failed once.
 
