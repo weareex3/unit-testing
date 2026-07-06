@@ -1678,7 +1678,7 @@ def _annotate_marks(cmds: str, marks: list) -> str:
 def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None",
                    run_id_override: str | None = None, step_done_callback=None,
                    max_iters: int = 12, check_stop=None, ask_user=None, confirm_step=None,
-                   confirm_done=None, grounding: bool = False,
+                   confirm_done=None, grounding: bool = True,
                    model: str = "claude-opus-4-8") -> ScenarioResult:
     """Free-form autonomous agent (Testing Hub): given a plain-English GOAL, log in
     to SF and loop screenshot -> Claude decides next actions -> execute, until the

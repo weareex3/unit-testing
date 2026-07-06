@@ -3432,7 +3432,7 @@ async def api_lab_run(request: Request):
                                     ask_user=_ask_user,
                                     confirm_step=_confirm_step if confirm_mode else None,
                                     confirm_done=_confirm_done,
-                                    grounding=grounding_mode, model=model)
+                                    grounding=True, model=model)  # precision clicking enforced on every run
             _LAB_LEARNED["commands"] = list(getattr(result, "agent_commands", []) or [])
             _write("done")
             _ACTIVE_RUNS["agent"] = {"status": "done", "run_id": run_id, "passed": result.passed,

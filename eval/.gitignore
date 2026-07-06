@@ -1,0 +1,4 @@
+# Real SF screenshots and generated reports contain tenant data — keep local only.
+# The harness code, cases.json, and README are committed; the PNGs are not.
+dataset/*.png
+report*.html

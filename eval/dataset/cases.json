@@ -1,0 +1,26 @@
+[
+  {
+    "screenshot": "proxy_01.png",
+    "action": "Click the avatar in the top-right header to open the user menu",
+    "expected": "The user menu opens showing Proxy Now",
+    "test_data": "",
+    "scenario_context": "Scenario: LOGIN-102 — Proxy Login | Role: Admin | Module: LOGIN",
+    "known_good": "CLICK_XY: 1224, 25\nWAIT: 2000"
+  },
+  {
+    "screenshot": "proxy_02.png",
+    "action": "Open Proxy Now from the user menu",
+    "expected": "The Proxy Now dialog opens with a person search field",
+    "test_data": "",
+    "scenario_context": "Scenario: LOGIN-102 — Proxy Login | Role: Admin | Module: LOGIN",
+    "known_good": "CLICK: Proxy Now\nWAIT: 3000"
+  },
+  {
+    "screenshot": "proxy_03.png",
+    "action": "Search for the target employee and select them from the dropdown",
+    "expected": "The target employee is selected in the proxy dialog",
+    "test_data": "{{target_employee_name}}",
+    "scenario_context": "Scenario: LOGIN-102 — Proxy Login | Role: Admin | Module: LOGIN",
+    "known_good": "TYPE: {{target_employee_name}}\nWAIT: 3000\nPRESS: ArrowDown\nWAIT: 500\nPRESS: Enter"
+  }
+]
