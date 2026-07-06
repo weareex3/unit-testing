@@ -467,6 +467,36 @@ def run_scenario(
                 and all(s.passed for s in result.steps)
             )
 
+            # FINAL-STATE ORACLE: saved commands are trusted per step (see 8c6ff72
+            # note above), but text-targeted commands fail loudly when the UI changes
+            # while coordinate clicks do not — they can silently hit the wrong thing
+            # and still "pass". So after a fully-automated run passes, check the LAST
+            # step's expected result against the final screen once. Only a CLEAR fail
+            # blocks (needs_review / verifier error never flips a pass — that would
+            # reintroduce the flakiness 8c6ff72 reverted).
+            if result.passed and steps and not manual and not live_mode and not preview:
+                final_expected = (expected_overrides.get(steps[-1].step_id)
+                                  or steps[-1].expected_result or "").strip()
+                if final_expected:
+                    try:
+                        final_shot = str(runs_dir / "final_check.png")
+                        page.screenshot(path=final_shot, full_page=False)
+                        vr = verify_expected_result(
+                            final_shot, final_expected,
+                            context=f"Scenario: {scenario.scenario_id} — {scenario.name}")
+                        if vr["verdict"] == "fail":
+                            print(f"  [oracle] final check FAILED: {vr['reason']}")
+                            result.passed = False
+                            result.error = f"Final verification failed: {vr['reason']}"
+                            if result.steps:
+                                result.steps[-1].passed = False
+                                result.steps[-1].error_message = (
+                                    f"Final verification failed: {vr['reason']}")
+                        elif vr["verdict"] == "needs_review":
+                            print(f"  [oracle] final check unsure: {vr['reason']} — not blocking")
+                    except Exception as _exc:
+                        print(f"  [oracle] final check error: {_exc} — not blocking")
+
             # In live mode, hold the browser open after all steps complete.
             # The user decides when they're truly done — they may want to keep
             # clicking, check something extra, or the scenario may have more
@@ -1683,6 +1713,26 @@ def _annotate_marks(cmds: str, marks: list) -> str:
     return "\n".join(out)
 
 
+def _durable_commands(lines: list, marks: list) -> list:
+    """Make executed commands safe to SAVE and replay. Mark numbers/coordinates only
+    mean something in the session they were captured in — on replay the data-som tag
+    is gone and 'CLICK_MARK: N | x, y' degrades to a blind pixel click that can
+    silently hit the wrong element if the layout shifted. Store the element's label
+    as a text click instead; keep the coordinate form only when there is no label."""
+    import re as _re
+    by_i = {int(m["i"]): m for m in marks or [] if "i" in m}
+    out = []
+    for line in lines or []:
+        mo = _re.match(r"\s*CLICK_MARK:\s*#?(\d+)", line, _re.I)
+        if mo:
+            mk = by_i.get(int(mo.group(1)))
+            label = str(mk.get("label", "")).strip() if mk else ""
+            out.append(f"CLICK: {label}" if label else line)
+        else:
+            out.append(line)
+    return out
+
+
 def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None",
                    run_id_override: str | None = None, step_done_callback=None,
                    max_iters: int = 12, check_stop=None, ask_user=None, confirm_step=None,
@@ -1808,7 +1858,8 @@ def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None
                                            expected_result=goal, test_data="")
                 exec_cmds = _resolve_marks(cmds, marks) if grounding else cmds
                 sr = _run_direct_commands(page, step_obj, str(runs_dir), exec_cmds, _time.time())
-                executed_cmds.extend(ln.strip() for ln in sr.executed_lines if ln.strip())
+                executed_cmds.extend(_durable_commands(
+                    [ln.strip() for ln in sr.executed_lines if ln.strip()], marks))
                 if not sr.passed:
                     history.append(f"  (action FAILED: {sr.error_message})")
                 page.wait_for_timeout(800)

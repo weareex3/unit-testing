@@ -3,7 +3,7 @@ failed action can never be saved to the library as a working command."""
 
 from types import SimpleNamespace
 
-from engine.runner import _run_direct_commands
+from engine.runner import _durable_commands, _run_direct_commands
 
 
 class _FakeKeyboard:
@@ -57,3 +57,16 @@ def test_unresolved_placeholder_executes_nothing(tmp_path):
                               "TYPE: {{target_employee_name}}", 0.0)
     assert sr.passed is False
     assert sr.executed_lines == []
+
+
+def test_durable_commands_replace_marks_with_labels():
+    marks = [{"i": 7, "x": 640, "y": 320, "label": "Edit Addresses"},
+             {"i": 9, "x": 100, "y": 50, "label": ""}]
+    lines = ["CLICK_MARK: 7 | 640, 320", "WAIT: 1500", "CLICK_MARK: 9 | 100, 50", "TYPE: hi"]
+    out = _durable_commands(lines, marks)
+    assert out == ["CLICK: Edit Addresses", "WAIT: 1500", "CLICK_MARK: 9 | 100, 50", "TYPE: hi"]
+
+
+def test_durable_commands_no_marks_is_identity():
+    lines = ["CLICK: OK", "WAIT: 500"]
+    assert _durable_commands(lines, []) == lines
