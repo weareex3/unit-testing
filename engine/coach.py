@@ -11,6 +11,12 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from engine.tools import ACTION_TOOLS, ASK_USER_TOOL, TASK_COMPLETE_TOOL, serialize_tool_calls
+
+# The Hub agent gets the action tools plus its two control tools. `JS` is
+# deliberately absent — the model can no longer generate arbitrary JavaScript.
+_AGENT_TOOLS = ACTION_TOOLS + [ASK_USER_TOOL, TASK_COMPLETE_TOOL]
+
 
 def _extract_json_obj(raw: str) -> dict | None:
     """Pull a JSON object out of a model reply that may be wrapped in ``` fences
@@ -150,7 +156,6 @@ Available commands (one per line):
   FILL: field label | value
   SHADOW_CLICK: text in shadow DOM
   NAVIGATE: Module Name
-  JS: javascript expression
 
 Output ONLY commands. No explanation, no markdown, no blank lines between commands."""
 
@@ -253,6 +258,39 @@ Return ONLY valid JSON:
 
 
 # ── Free-form agent ("describe what you want, Claude does it") ────────────────
+def _parse_agent_response(blocks) -> dict | None:
+    """Turn one agent reply (content blocks) into {reasoning, commands, ask, done}.
+    Prefers native tool_use blocks; falls back to the legacy JSON-in-text contract
+    so an odd text-only reply doesn't stall a run. Accepts SDK objects or dicts."""
+    blocks = blocks or []
+    def _f(b, k):
+        return getattr(b, k, None) or (b.get(k) if isinstance(b, dict) else None)
+    text = "".join(_f(b, "text") or "" for b in blocks if _f(b, "type") == "text").strip()
+    tool_blocks = [b for b in blocks if _f(b, "type") == "tool_use"]
+    if tool_blocks:
+        ask, done = "", False
+        for b in tool_blocks:
+            name = str(_f(b, "name") or "")
+            inp = _f(b, "input") or {}
+            if not isinstance(inp, dict):
+                inp = {}
+            if name == "ask_user":
+                ask = str(inp.get("question", "")).strip()
+            elif name == "task_complete":
+                done = True
+        return {"reasoning": text[:240], "commands": serialize_tool_calls(blocks),
+                "ask": ask, "done": done}
+    data = _extract_json_obj(text)
+    if data is None:
+        return None
+    return {
+        "reasoning": str(data.get("reasoning", ""))[:240],
+        "commands": str(data.get("commands", "")),
+        "ask": str(data.get("ask", "")).strip(),
+        "done": bool(data.get("done")),
+    }
+
+
 def get_agent_actions(screenshot_path: str, goal: str, history: list, preview: bool = True,
                       marks: list | None = None, model: str = "claude-opus-4-8") -> dict | None:
     """Autonomous agent step: given a plain-English GOAL, the current screenshot,
@@ -274,10 +312,10 @@ def get_agent_actions(screenshot_path: str, goal: str, history: list, preview: b
         "OK/Confirm buttons (e.g. the 'Select Target User' / Proxy Now OK, opening an edit form) are NOT "
         "commits — ALWAYS do them so the task actually progresses. The ONLY thing you must not click is "
         "the FINAL button that writes the data change (the Save / Submit / Confirm on the edit form you "
-        "were asked to change). Set done=true ONLY when every field is filled and you are literally one "
-        "click — that final Save — away. Do NOT set done=true just because a field or dialog is in front "
-        "of you: fill it in first. Leaving a required field (like the proxy target name) blank is a FAIL, "
-        "not a valid stopping point."
+        "were asked to change). Call task_complete ONLY when every field is filled and you are literally "
+        "one click — that final Save — away. Do NOT call task_complete just because a field or dialog is "
+        "in front of you: fill it in first. Leaving a required field (like the proxy target name) blank "
+        "is a FAIL, not a valid stopping point."
         if preview else ""
     )
     # Set-of-marks: a numbered list of every clickable element on screen (badges shown
@@ -287,13 +325,13 @@ def get_agent_actions(screenshot_path: str, goal: str, history: list, preview: b
         legend = "\n".join(f"  {m['i']}. {m.get('label', '')}" for m in marks if m.get("i"))
         marks_section = (
             "\n\nNUMBERED CLICKABLE ELEMENTS (each has a red number badge in the screenshot). To click "
-            "one, use `CLICK_MARK: <number>` and match the number to the element by reading BOTH the "
+            "one, use the click_mark tool and match the number to the element by reading BOTH the "
             "screenshot and this list:\n" + legend +
-            "\n\nCRITICAL: only use CLICK_MARK when a number genuinely sits on the element you want. "
+            "\n\nCRITICAL: only use click_mark when a number genuinely sits on the element you want. "
             "If the thing you want to click — e.g. a pop-up/dropdown menu item like 'Public Profile' or "
             "'Proxy Now' — is NOT in this numbered list, do NOT pick a nearby/different number. Instead "
-            "use `CLICK: <its exact visible text>` (text clicks search pop-up menus and shadow DOM). "
-            "Picking the wrong number is worse than a text click."
+            "use the click tool with its exact visible text (text clicks search pop-up menus and shadow "
+            "DOM). Picking the wrong number is worse than a text click."
         )
     try:
         import anthropic
@@ -328,9 +366,9 @@ actions that move toward the goal. Think like you would when shown a screenshot 
 what's on screen, then act.
 
 RULES:
-- Prefer stable text targets over coordinates: CLICK: <visible text>, FILL: <label> | <value>,
-  NAVIGATE: <Module>. Use CLICK_XY only as a last resort when there's no readable text.
-- For a search/result list, type the value, WAIT, then CLICK the matching result by its name.
+- Prefer stable text targets over coordinates: click by visible text, fill by field label,
+  navigate by module name. Use click_xy only as a last resort when there's no readable text.
+- For a search/result list, type the value, wait, then click the matching result by its name.
 - DIRECT-EDIT RULE: if the data you need to edit is ALREADY visible on screen in a card/portlet
   (e.g. an "Addresses", "Job Information", or "Personal Information" card) with an Edit/pencil
   icon, click THAT pencil/Edit icon directly. Do NOT open Actions menus or extra sub-navigation
@@ -360,25 +398,18 @@ RULES:
 - ANTI-REPEAT RULE: never click the same target twice in a row. If the screen did not change
   after your last action, the click missed — try a DIFFERENT target (the avatar, a row, a link,
   a nearby element) or a different approach, rather than repeating the same click.
-- Add WAIT: 1500 after anything that opens a menu/dialog or navigates.
-- Set done=true ONLY when the goal is fully achieved (or, in preview, when you've reached the
-  point just before the final commit).{preview_rule}
+- Add a wait of ~1500ms after anything that opens a menu/dialog or navigates.
+- Call task_complete ONLY when the goal is fully achieved (or, in preview, when you've reached
+  the point just before the final commit).{preview_rule}
 - ASK-DON'T-GUESS RULE: if you need a specific value to proceed — the PERSON to act on, or the
   exact TEXT to type into a field — and it is NOT in the goal or in what you've done so far, do
-  NOT invent or guess it. Instead set "ask" to a short plain question ("Who am I editing?" or
-  "What should I type here?") and leave commands empty. The user will answer and you continue.
-  Ask only when truly needed, and only once per value (reuse the answer afterwards).
+  NOT invent or guess it. Instead call the ask_user tool with a short plain question ("Who am I
+  editing?" or "What should I type here?") and make no other action calls. The user will answer
+  and you continue. Ask only when truly needed, and only once per value (reuse the answer).
 
-Available commands (one per line in "commands"):
-  CLICK_MARK: number (PREFERRED for clicks when numbered elements are listed above)
-  CLICK: text | CLICK_XY: x, y | TYPE: text | PRESS: Key | WAIT: ms | FILL: label | value
-  SHADOW_CLICK: text | NAVIGATE: Module | SELECT: option | JS: expression
-
-Reply with ONLY valid JSON:
-{{"reasoning": "<one sentence: what you see and what you'll do>",
-  "commands": "<command lines, newline-separated; empty if done or if asking>",
-  "ask": "<a short who/what question if you need a value to proceed, else empty>",
-  "done": <true|false>}}"""
+Act by calling the provided tools: emit the next 1-3 action tool calls, in order (prefer
+click_mark when numbered elements are listed above). Before the tool calls, write ONE short
+sentence: what you see and what you'll do."""
         print(f"  [agent] model={model}")
         msg = client.messages.create(
             model=model,
@@ -388,28 +419,17 @@ Reply with ONLY valid JSON:
                 "and know exactly how to navigate — module picker, proxy, Employee Central, Recruiting, "
                 "shadow-DOM popups. You drive step by step toward the user's stated goal."
             ),
+            tools=_AGENT_TOOLS,
             messages=[{"role": "user", "content": [
                 {"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": img}},
                 {"type": "text", "text": prompt},
             ]}],
         )
-        # Some models (Mythos-class / extended-thinking) return a thinking block
-        # FIRST, so content[0] isn't the text. Concatenate every text block.
-        raw = "".join(
-            getattr(b, "text", "") for b in msg.content if getattr(b, "type", "") == "text"
-        ).strip()
-        if not raw:
-            raw = "".join(getattr(b, "text", "") for b in msg.content).strip()
-        data = _extract_json_obj(raw)
-        if data is None:
-            print(f"  [agent] could not parse JSON from model reply: {raw[:300]!r}")
-            return None
-        return {
-            "reasoning": str(data.get("reasoning", ""))[:240],
-            "commands": str(data.get("commands", "")),
-            "ask": str(data.get("ask", "")).strip(),
-            "done": bool(data.get("done")),
-        }
+        out = _parse_agent_response(msg.content)
+        if out is None:
+            raw = "".join(getattr(b, "text", "") for b in (msg.content or [])).strip()
+            print(f"  [agent] no tool calls and no parseable JSON in reply: {raw[:300]!r}")
+        return out
     except Exception as exc:
         print(f"  [agent] error: {exc}")
         return None
