@@ -548,23 +548,31 @@ def _compute_match_results(scenarios, library: dict) -> list[dict]:
     return results
 
 
-def _git_push_library():
-    import subprocess
-    remote = _git_remote_with_token()
+def _backup_learned_data() -> None:
+    """Copy the learned-data files (library, feedback, approved playbook) to S3.
+    They are the product's core asset and otherwise exist only on the /data
+    volume. Fail-soft: a backup failure must never break a save.
+
+    Replaces the old git-push backup, which silently never worked in production:
+    with /data mounted, LIBRARY_FILE.relative_to(ROOT) raised ValueError on every
+    call (and raw `git push` stderr could leak the token-injected remote URL)."""
+    bucket = os.getenv("S3_BUCKET", "").strip()
+    if not bucket:
+        print("[backup] S3_BUCKET not set — learned data has no off-volume backup")
+        return
     try:
-        lib_path = str(LIBRARY_FILE.relative_to(ROOT))
-        subprocess.run(["git", "-C", str(ROOT), "add", lib_path], check=True, capture_output=True)
-        result = subprocess.run(["git", "-C", str(ROOT), "commit", "-m", "Update step library [auto]"], capture_output=True)
-        if result.returncode != 0 and b"nothing to commit" not in result.stdout + result.stderr:
-            return
-        subprocess.run(["git", "-C", str(ROOT), "pull", "--rebase", remote, "master"], capture_output=True)
-        push = subprocess.run(["git", "-C", str(ROOT), "push", remote, "master"], capture_output=True)
-        if push.returncode == 0:
-            print("[library] pushed to GitHub")
-        else:
-            print(f"[library] push failed: {push.stderr.decode()}")
+        import boto3
+        s3 = boto3.client("s3", region_name=os.getenv("AWS_REGION") or None)
+        stamp = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
+        uploaded = []
+        for f in (LIBRARY_FILE, FEEDBACK_FILE, APPROVED_FILE):
+            if f.exists():
+                s3.upload_file(str(f), bucket, f"backups/{CLIENT_ID}/{stamp}/{f.name}")
+                uploaded.append(f.name)
+        if uploaded:
+            print(f"[backup] {', '.join(uploaded)} -> s3://{bucket}/backups/{CLIENT_ID}/{stamp}/")
     except Exception as exc:
-        print(f"[library] git push error: {exc}")
+        print(f"[backup] failed: {exc}")
 
 
 def _load_approved() -> dict:
@@ -578,50 +586,6 @@ def _load_approved() -> dict:
 
 def _save_approved(data: dict) -> None:
     APPROVED_FILE.write_text(json.dumps(data, indent=2))
-
-
-def _git_remote_with_token() -> str:
-    """Return the git remote URL with GITHUB_TOKEN injected for auth."""
-    token = os.getenv("GITHUB_TOKEN", "")
-    if not token:
-        return "origin"
-    try:
-        import subprocess
-        result = subprocess.run(
-            ["git", "-C", str(ROOT), "remote", "get-url", "origin"],
-            capture_output=True, text=True
-        )
-        url = result.stdout.strip()
-        # inject token: https://github.com/... → https://token@github.com/...
-        if url.startswith("https://") and "@" not in url:
-            url = url.replace("https://", f"https://{token}@")
-        return url
-    except Exception:
-        return "origin"
-
-
-def _git_push_approved():
-    import subprocess
-    remote = _git_remote_with_token()
-    try:
-        paths = [
-            str(APPROVED_FILE.relative_to(ROOT)),
-            str(FEEDBACK_FILE.relative_to(ROOT)),
-        ]
-        for p in paths:
-            subprocess.run(["git", "-C", str(ROOT), "add", p], check=True, capture_output=True)
-        result = subprocess.run(["git", "-C", str(ROOT), "commit", "-m", "Update approved playbook [auto]"], capture_output=True)
-        if result.returncode != 0 and b"nothing to commit" not in result.stdout + result.stderr:
-            print(f"[approved] commit failed: {result.stderr.decode()}")
-            return
-        subprocess.run(["git", "-C", str(ROOT), "pull", "--rebase", remote, "master"], capture_output=True)
-        push = subprocess.run(["git", "-C", str(ROOT), "push", remote, "master"], capture_output=True)
-        if push.returncode == 0:
-            print("[approved] pushed to GitHub")
-        else:
-            print(f"[approved] push failed: {push.stderr.decode()}")
-    except Exception as exc:
-        print(f"[approved] git push error: {exc}")
 
 
 def _load_feedback() -> dict:
@@ -2662,8 +2626,7 @@ def _save_reviewed_task_to_library(scenario, commands: dict, user: dict, run_id:
         status="saved",
         details={"task_name": task_name, "steps_saved": len(commands)},
     )
-    threading.Thread(target=_git_push_approved, daemon=True).start()
-    threading.Thread(target=_git_push_library, daemon=True).start()
+    threading.Thread(target=_backup_learned_data, daemon=True).start()
     return {"ok": True, "task_name": task_name, "steps_saved": len(commands)}
 
 
@@ -3518,7 +3481,7 @@ async def api_lab_save(request: Request):
         "has_learned_commands": True,
     }
     _save_library(data)
-    threading.Thread(target=_git_push_library, daemon=True).start()
+    threading.Thread(target=_backup_learned_data, daemon=True).start()
     return JSONResponse({"ok": True, "task_name": task_name, "moves": len(cmds)})
 
 
@@ -4315,7 +4278,7 @@ async def live_done(scenario_id: str, request: Request):
             data.setdefault(scenario_id, {})[paused_step] = commands
             _save_feedback(data)
             import threading as _t
-            _t.Thread(target=_git_push_feedback, daemon=True).start()
+            _t.Thread(target=_backup_learned_data, daemon=True).start()
 
     active = _ACTIVE_RUNS.get(scenario_id, {})
     _append_audit(
@@ -4428,28 +4391,6 @@ async def request_control(scenario_id: str, request: Request):
         _t.Thread(target=_run, daemon=True).start()
 
     return JSONResponse({"ok": True, "status": "starting"})
-
-
-def _git_push_feedback():
-    """Commit and push feedback file to GitHub in the background."""
-    import subprocess
-    remote = _git_remote_with_token()
-    try:
-        feedback_path = str(FEEDBACK_FILE.relative_to(ROOT))
-        subprocess.run(["git", "-C", str(ROOT), "add", feedback_path], check=True, capture_output=True)
-        result = subprocess.run(["git", "-C", str(ROOT), "commit", "-m", "Update step feedback [auto]"], capture_output=True)
-        if result.returncode != 0 and b"nothing to commit" not in result.stdout + result.stderr:
-            print(f"[feedback] commit failed: {result.stderr.decode()}")
-            return
-        # Pull remote changes first so our push isn't rejected
-        subprocess.run(["git", "-C", str(ROOT), "pull", "--rebase", remote, "master"], capture_output=True)
-        push = subprocess.run(["git", "-C", str(ROOT), "push", remote, "master"], capture_output=True)
-        if push.returncode == 0:
-            print("[feedback] pushed to GitHub")
-        else:
-            print(f"[feedback] push failed: {push.stderr.decode()}")
-    except Exception as exc:
-        print(f"[feedback] git push error: {exc}")
 
 
 @app.get("/click/{scenario_id}/{step_id}", response_class=HTMLResponse)
@@ -4766,7 +4707,7 @@ def approve_scenario(request: Request, scenario_id: str):
         status="approved",
         details={"steps_locked": len(feedback)},
     )
-    threading.Thread(target=_git_push_approved, daemon=True).start()
+    threading.Thread(target=_backup_learned_data, daemon=True).start()
     return JSONResponse({"ok": True})
 
 
@@ -4812,7 +4753,7 @@ def unapprove_scenario(request: Request, scenario_id: str):
         user=_current_user(request),
         status="unapproved",
     )
-    threading.Thread(target=_git_push_approved, daemon=True).start()
+    threading.Thread(target=_backup_learned_data, daemon=True).start()
     return JSONResponse({"ok": True})
 
 
@@ -4841,7 +4782,7 @@ def set_step_feedback(
         details={"feedback": feedback.strip(), "push": push},
     )
     if push.lower() != "false":
-        threading.Thread(target=_git_push_feedback, daemon=True).start()
+        threading.Thread(target=_backup_learned_data, daemon=True).start()
     return JSONResponse({"ok": True})
 
 
@@ -5107,7 +5048,7 @@ def add_to_library(
         "has_learned_commands": learned,
     }
     _save_library(data)
-    threading.Thread(target=_git_push_library, daemon=True).start()
+    threading.Thread(target=_backup_learned_data, daemon=True).start()
     return JSONResponse({"ok": True, "learned": learned})
 
 
@@ -5131,7 +5072,7 @@ async def set_library_task_steps(task_name: str, request: Request):
         entry["description"] = str(body["description"])
     data[task_name] = entry
     _save_library(data)
-    threading.Thread(target=_git_push_library, daemon=True).start()
+    threading.Thread(target=_backup_learned_data, daemon=True).start()
     return JSONResponse({"ok": True, "task_name": task_name, "steps": len(steps)})
 
 
@@ -5140,12 +5081,12 @@ def delete_library_task(task_name: str):
     data = _load_library()
     data.pop(task_name, None)
     _save_library(data)
-    threading.Thread(target=_git_push_library, daemon=True).start()
+    threading.Thread(target=_backup_learned_data, daemon=True).start()
     return JSONResponse({"ok": True})
 
 
 @app.post("/api/library/clear")
 def clear_library():
     _save_library({})
-    threading.Thread(target=_git_push_library, daemon=True).start()
+    threading.Thread(target=_backup_learned_data, daemon=True).start()
     return JSONResponse({"ok": True})
