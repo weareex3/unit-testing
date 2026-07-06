@@ -1935,11 +1935,11 @@ def run_plan(plan, answers=None, preview=True, runs_root="runs", run_id_override
                     act = get_agent_actions(shot, desc, [], preview=preview, marks=marks)
                     fb_cmds = _resolve_marks(act["commands"], marks) if (act and act.get("commands")) else ""
                     if fb_cmds.strip():
-                        try:
-                            _run_direct_commands(page, step_obj, str(runs_dir), fb_cmds, _time.time())
+                        sr2 = _run_direct_commands(page, step_obj, str(runs_dir), fb_cmds, _time.time())
+                        if sr2.passed:
                             note = f"{desc} — recovered with vision"
-                        except Exception as e2:
-                            ok, note = False, f"{desc} — failed: {str(e2)[:60]}"
+                        else:
+                            ok, note = False, f"{desc} — failed: {str(sr2.error_message)[:60]}"
                     else:
                         ok, note = False, f"{desc} — failed: {str(exc)[:60]}"
                 try:
