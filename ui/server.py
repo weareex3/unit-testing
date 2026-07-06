@@ -2377,20 +2377,32 @@ def _coverage_for_scenario(scenario, library: dict) -> dict:
     # name/intent overlap so a task like "edit address" reliably matches an
     # "Edit employee address" scenario instead of silently showing "no match".
     if not out["matched_task"]:
-        import re as _re
-        _stop = {"the", "a", "an", "to", "and", "or", "of", "in", "on", "for", "employee",
-                 "employees", "user", "users", "this", "their", "with", "into"}
-        def _sig(t):
-            return {w for w in _re.findall(r"[a-z]+", (t or "").lower()) if len(w) > 2 and w not in _stop}
-        scen_words = _sig(getattr(scenario, "name", "") + " " + " ".join(st.action for st in scenario.steps))
-        for n, e in tasks.items():
-            nm = _sig(n)
-            if nm and nm.issubset(scen_words):
-                out["matched_task"] = n
-                out["reason"] = "Matches a saved task by name/intent."
-                out["coverage"] = {st.step_id: True for st in scenario.steps}
-                break
+        fb = _fallback_name_match(scenario, tasks)
+        if fb:
+            out.update(fb)
     return out
+
+
+def _fallback_name_match(scenario, tasks: dict) -> dict | None:
+    """Name/intent-overlap match used when the AI matcher declines. Suggests the
+    task but claims coverage ONLY for steps the task has saved commands for —
+    a name overlap is not evidence the task can perform every step."""
+    import re as _re
+    _stop = {"the", "a", "an", "to", "and", "or", "of", "in", "on", "for", "employee",
+             "employees", "user", "users", "this", "their", "with", "into"}
+    def _sig(t):
+        return {w for w in _re.findall(r"[a-z]+", (t or "").lower()) if len(w) > 2 and w not in _stop}
+    scen_words = _sig(getattr(scenario, "name", "") + " " + " ".join(st.action for st in scenario.steps))
+    for n, e in tasks.items():
+        nm = _sig(n)
+        if nm and nm.issubset(scen_words):
+            saved_step_ids = set((e.get("steps") or {}).keys())
+            return {
+                "matched_task": n,
+                "reason": "Matches a saved task by name/intent.",
+                "coverage": {st.step_id: st.step_id in saved_step_ids for st in scenario.steps},
+            }
+    return None
 
 
 @app.get("/api/coverage/{scenario_id}")
