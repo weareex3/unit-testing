@@ -772,6 +772,7 @@ def _agent_step_is_final_save(step_action: str) -> bool:
 def _run_direct_commands(page: Page, step, output_dir: str, feedback: str, t0: float) -> StepResult:
     """Execute a step using direct commands written in the feedback box."""
     current_cmd = ""
+    executed_lines: list[str] = []
     try:
         for line in feedback.strip().splitlines():
             line = resolve_dynamic_tokens(line.strip())
@@ -839,12 +840,14 @@ def _run_direct_commands(page: Page, step, output_dir: str, feedback: str, t0: f
                 # "JS: document.querySelector('...').click()"
                 page.evaluate(arg)
 
+            executed_lines.append(line)
             page.wait_for_timeout(600)
 
         shot = os.path.join(output_dir, f"{step.step_id}.png")
         page.screenshot(path=shot, full_page=False)
         return StepResult(step_id=step.step_id, passed=True,
-                          duration_s=round(time.time() - t0, 2), screenshot_path=shot)
+                          duration_s=round(time.time() - t0, 2), screenshot_path=shot,
+                          executed_lines=executed_lines)
     except Exception as exc:
         shot = os.path.join(output_dir, f"{step.step_id}_fail.png")
         try:
@@ -855,7 +858,8 @@ def _run_direct_commands(page: Page, step, output_dir: str, feedback: str, t0: f
         err = f"[{current_cmd}] {exc}" if current_cmd else str(exc)
         return StepResult(step_id=step.step_id, passed=False,
                           error_message=err,
-                          duration_s=round(time.time() - t0, 2), screenshot_path=shot)
+                          duration_s=round(time.time() - t0, 2), screenshot_path=shot,
+                          executed_lines=executed_lines)
 
 
 def _smart_click(page: Page, target: str) -> None:
@@ -1799,13 +1803,10 @@ def run_agent_goal(goal: str, preview: bool = True, runs_root="Path | str | None
                 step_obj = SimpleNamespace(step_id=f"agent-{i:02d}", action=goal,
                                            expected_result=goal, test_data="")
                 exec_cmds = _resolve_marks(cmds, marks) if grounding else cmds
-                try:
-                    _run_direct_commands(page, step_obj, str(runs_dir), exec_cmds, _time.time())
-                    for _ln in exec_cmds.splitlines():
-                        if _ln.strip():
-                            executed_cmds.append(_ln.strip())
-                except Exception as exc:
-                    history.append(f"  (action error: {exc})")
+                sr = _run_direct_commands(page, step_obj, str(runs_dir), exec_cmds, _time.time())
+                executed_cmds.extend(ln.strip() for ln in sr.executed_lines if ln.strip())
+                if not sr.passed:
+                    history.append(f"  (action FAILED: {sr.error_message})")
                 page.wait_for_timeout(800)
         except Exception as exc:
             result.error = str(exc)

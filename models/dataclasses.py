@@ -43,6 +43,9 @@ class StepResult:
     screenshot_path: str = ""
     self_healed: bool = False
     recovery_attempts: int = 0
+    # Command lines that actually executed without error — on failure the failing
+    # line is excluded, so callers never save/replay a command that didn't work.
+    executed_lines: List[str] = field(default_factory=list)
 
 
 @dataclass
