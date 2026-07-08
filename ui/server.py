@@ -1841,6 +1841,25 @@ def vault_upload_page(request: Request):
     )
 
 
+def _workbook_sanity(path: str) -> str | None:
+    """Reject workbooks that don't parse OR parse into obvious garbage — a shifted
+    column layout 'parses' fine but yields steps with no action text, which would
+    then run wrong. Returns an error message, or None if the workbook looks sane."""
+    try:
+        scenarios = parse_workbook(path)
+    except Exception as exc:
+        return f"Workbook could not be parsed: {exc}"
+    steps = [st for s in scenarios for st in s.steps]
+    if not scenarios or not steps:
+        return ("Workbook parsed but contains no scenarios or steps — check it matches "
+                "the EX3 template (Script ID in column B, actions in column F).")
+    missing_action = sum(1 for st in steps if not st.action.strip())
+    if missing_action * 2 > len(steps):
+        return ("More than half the steps have no action text — the column layout "
+                "probably doesn't match the EX3 template (actions in column F).")
+    return None
+
+
 @app.post("/vault/upload")
 async def vault_upload(request: Request, file: UploadFile = File(...), module: str = Form(...)):
     import tempfile
@@ -1857,14 +1876,15 @@ async def vault_upload(request: Request, file: UploadFile = File(...), module: s
         company_key = "internal"
 
     data = await file.read()
-    # Parse first (to a temp file outside the Vault) and reject if these tasks are
-    # already in this company's Vault — stops the same script being added twice.
+    # Parse first (to a temp file outside the Vault): reject garbage workbooks and
+    # ones whose tasks are already in this company's Vault (no double-adds).
     tmp = Path(tempfile.gettempdir()) / f"ex3up_{datetime.utcnow().strftime('%Y%m%d%H%M%S%f')}.xlsx"
     tmp.write_bytes(data)
     try:
+        sanity_error = _workbook_sanity(str(tmp))
+        if sanity_error:
+            raise HTTPException(400, sanity_error)
         new_ids = {s.scenario_id for s in parse_workbook(str(tmp))}
-    except Exception:
-        new_ids = set()
     finally:
         try:
             tmp.unlink()
@@ -1936,11 +1956,10 @@ async def upload_script(file: UploadFile = File(...)):
         target = UPLOADED_SCRIPTS_DIR / f"{target.stem}_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}.xlsx"
     data = await file.read()
     target.write_bytes(data)
-    try:
-        parse_workbook(str(target))
-    except Exception as exc:
+    sanity_error = _workbook_sanity(str(target))
+    if sanity_error:
         target.unlink(missing_ok=True)
-        raise HTTPException(400, f"Workbook could not be parsed: {exc}")
+        raise HTTPException(400, sanity_error)
     return RedirectResponse(f"/?script={target.name}", status_code=303)
 
 

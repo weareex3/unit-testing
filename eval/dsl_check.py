@@ -71,6 +71,36 @@ def _is_float(s: str) -> bool:
         return False
 
 
+_DATE_RE = re.compile(r"\b\d{1,2}[/.-]\d{1,2}[/.-]\d{2,4}\b")
+_ID_RE = re.compile(r"\b\d{5,}\b")
+
+
+def _warn_line(line: str) -> str | None:
+    """Return a non-blocking warning for commands that replay but are fragile or
+    embed instance-specific data. These don't fail the check — they tell you
+    which stored tasks are worth retraining to durable form."""
+    line = line.strip()
+    if not line or line.startswith("#") or ":" not in line:
+        return None
+    cmd, _, arg = line.partition(":")
+    cmd = cmd.strip().upper()
+    arg = arg.strip()
+
+    if cmd == "CLICK_XY" or (cmd == "CLICK_MARK" and "|" in arg):
+        return "coordinate click — session-bound; can silently misclick after an SF layout change"
+    if cmd == "JS":
+        return "legacy JS line — still replays, but can no longer be generated; retrain to durable commands"
+    if cmd in ("TYPE", "FILL"):
+        value = arg.rpartition("|")[2].strip() if cmd == "FILL" else arg
+        if TOKEN_RE.search(value):
+            return None
+        if _DATE_RE.search(value):
+            return "literal date — will go stale; use {{today}} or a placeholder"
+        if _ID_RE.search(value):
+            return "long numeric literal — looks instance-specific; consider a {{placeholder}}"
+    return None
+
+
 def _iter_commands():
     """Yield (source, key, command_string) from every stored command map."""
     lib = STORAGE / "global" / "step_library.json"
@@ -98,6 +128,7 @@ def _iter_commands():
 
 def main() -> int:
     errors: list[str] = []
+    warnings: list[str] = []
     tokens: set[str] = set()
     n_steps = 0
     n_lines = 0
@@ -115,10 +146,19 @@ def main() -> int:
             err = _check_line(line)
             if err:
                 errors.append(f"[{source}] {step_id}: {err}  ::  {line.strip()[:80]}")
+            else:
+                warn = _warn_line(line)
+                if warn:
+                    warnings.append(f"[{source}] {step_id}: {warn}  ::  {line.strip()[:80]}")
 
     print(f"Checked {n_steps} stored steps, {n_lines} command lines.")
     if tokens:
         print(f"Runtime tokens in use (filled at run time): {', '.join(sorted(tokens))}")
+
+    if warnings:
+        print(f"\n{len(warnings)} fragility warning(s) (non-blocking — retrain these when convenient):")
+        for w in warnings:
+            print(f"  ~ {w}")
 
     if errors:
         print(f"\n{len(errors)} malformed command(s):")

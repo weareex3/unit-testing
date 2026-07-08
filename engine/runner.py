@@ -214,7 +214,7 @@ def run_scenario(
                 # a suggestion the user accepts — it is never auto-applied to a run.
                 _library_steps = {}
             # library steps are keyed by step_id; build a positional fallback by index too
-            _library_by_index = {str(i): cmd for i, cmd in enumerate(_library_steps.values())}
+            _library_by_index = _positional_library_map(_library_steps, len(steps))
 
             for i, step in enumerate(steps, 1):
                 print(f"\n  [step {i}/{len(steps)}] {step.step_id}")
@@ -580,6 +580,18 @@ def _load_feedback(scenario_id: str) -> dict:
             pass
 
     return {**global_data, **client_data}
+
+
+def _positional_library_map(library_steps: dict, scenario_step_count: int) -> dict:
+    """Positional fallback for applying a library task to a scenario whose step_ids
+    don't match. Only safe when the shapes agree: same step count, or a single-blob
+    Hub-trained task (whole flow stored as one step, applied at step 1). With any
+    other mismatch, position N of the task may be a DIFFERENT action than position
+    N of the scenario and the wrong-but-valid command would run — so return no
+    fallback and let unmatched steps go to vision/human instead."""
+    if len(library_steps) == 1 or len(library_steps) == scenario_step_count:
+        return {str(i): cmd for i, cmd in enumerate(library_steps.values())}
+    return {}
 
 
 def _library_task_match(scenario_steps: list, library: dict) -> dict:
