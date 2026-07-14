@@ -2097,6 +2097,26 @@ def _stats(workbook: str | None = None):
     }
 
 
+def _needs_attention(limit: int = 8) -> list[dict]:
+    """Failing/blocked scenarios across every workbook, most urgent first -
+    the command-centre home page's 'needs attention' list."""
+    items = []
+    for wb in _workbooks():
+        for group in _grouped_scenarios(wb["key"]):
+            for s in group["scenarios"]:
+                if s["status"] in ("fail", "blocked"):
+                    items.append({
+                        "id": s["id"],
+                        "name": s["name"],
+                        "role": s["role"],
+                        "status": s["status"],
+                        "script": wb["key"],
+                        "script_name": wb["name"],
+                    })
+    items.sort(key=lambda i: 0 if i["status"] == "fail" else 1)
+    return items[:limit]
+
+
 def _load_step_library() -> dict:
     if LIBRARY_FILE.exists():
         try:
@@ -3581,12 +3601,23 @@ def rescan_library(request: Request):
 def home(request: Request):
     selected_workbook = request.query_params.get("script") or None
     user = _current_user(request)
-    # Bare "/" is the simple post-login landing: upload your own, or open the Vault.
+    # Bare "/" is the command-centre home: a status-first landing (needs
+    # attention, recent runs, workbooks) rather than a bare choice screen.
     if not selected_workbook:
+        scope = None if _role_at_least(user.get("role", "viewer"), "admin") else (user.get("company") or "internal")
+        recent_runs = _run_records(scope)[:6]
         return templates.TemplateResponse(
             request=request,
             name="landing.html",
-            context={"current_user": user, "client_id": CLIENT_ID},
+            context={
+                "current_user": user,
+                "client_id": CLIENT_ID,
+                "all_stats": _stats(),
+                "workbooks": _workbooks(),
+                "needs_attention": _needs_attention(),
+                "recent_runs": recent_runs,
+                "now_hour": datetime.now().hour,
+            },
         )
     workbooks = _workbooks()
     selected_name = next((w["name"] for w in workbooks if w["key"] == selected_workbook), selected_workbook)
