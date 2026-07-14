@@ -7,244 +7,60 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
-    :root {
-      --ink: #151311; --muted: #746f66; --line: rgba(47, 42, 35, .11);
-      --paper: #fbfaf7; --panel: rgba(255, 255, 255, .82);
-      --gold: #b9954f; --gold-soft: #ead9ad;
-      --blue: #2367c8; --green: #1f9d5a; --red: #c9493d; --amber: #c77a1b;
-      --shadow: 0 18px 50px rgba(32, 27, 20, .08);
-    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { min-height: 100%; }
     body {
+      min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center;
       font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: radial-gradient(circle at 18% 0%, rgba(185,149,79,.15), transparent 31%),
-        linear-gradient(180deg, #f7f2e9 0%, #f5f4f0 42%, #efeee9 100%);
-      color: var(--ink); -webkit-font-smoothing: antialiased; font-size: 14px; line-height: 1.5;
+      background: radial-gradient(circle at 18% 12%, rgba(188,153,84,.18), transparent 32%), linear-gradient(135deg, #090908, #161513 58%, #0b0b0c);
+      color: #f7f3ea; padding: 24px;
     }
-    a { color: inherit; text-decoration: none; }
-    button, input { font-family: inherit; cursor: pointer; }
-
-    /* ---- top bar ---- */
-    .topbar {
-      height: 62px; position: sticky; top: 0; z-index: 100;
-      display: flex; align-items: center; gap: 18px;
-      padding: 0 28px; background: rgba(251,250,247,.86); backdrop-filter: blur(24px);
-      border-bottom: 1px solid var(--line);
+    .mark { width: 54px; height: 54px; border-radius: 15px; display: grid; place-items: center; margin: 0 auto 22px; background: linear-gradient(135deg, #d8ba72, #91713e); color: #0b0b0c; font-weight: 800; font-size: 15px; }
+    .hello { text-align: center; margin-bottom: 4px; color: #bcb5a8; font-size: 13px; letter-spacing: .02em; }
+    h1 { text-align: center; font-size: 30px; font-weight: 800; letter-spacing: -.01em; }
+    .sub { text-align: center; color: #9a9488; font-size: 14px; margin-top: 8px; margin-bottom: 34px; }
+    .choices { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; width: min(720px, 100%); }
+    .choice {
+      display: block; text-decoration: none; color: inherit; padding: 26px 24px; border-radius: 20px;
+      background: rgba(22,21,19,.82); border: 1px solid rgba(226,207,159,.16); transition: .18s ease;
+      box-shadow: 0 24px 70px rgba(0,0,0,.35);
     }
-    .topbar-brand { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
-    .brand-icon { width: 32px; height: 32px; border-radius: 9px; display: grid; place-items: center; background: linear-gradient(135deg, #dfc77d, #876538); color: #10100f; font-weight: 800; font-size: 11px; }
-    .brand-name { font-size: 14px; font-weight: 750; }
-    .topbar-search { flex: 1; max-width: 420px; position: relative; }
-    .topbar-search svg { position: absolute; left: 13px; top: 50%; transform: translateY(-50%); color: #a59d91; }
-    .topbar-search input { width: 100%; min-height: 36px; padding: 8px 13px 8px 36px; border: 1px solid var(--line); border-radius: 10px; background: rgba(255,255,255,.7); font-size: 13px; outline: none; }
-    .topbar-search input:focus { border-color: rgba(185,149,79,.55); box-shadow: 0 0 0 4px rgba(185,149,79,.13); }
-    .topbar-right { margin-left: auto; display: flex; align-items: center; gap: 14px; }
-    .topbar-link { font-size: 12.5px; font-weight: 700; color: var(--muted); }
-    .topbar-link:hover { color: var(--ink); }
-    .avatar { width: 32px; height: 32px; border-radius: 50%; display: grid; place-items: center; background: linear-gradient(135deg, #dfc27b, #9b7740); color: #111; font-weight: 800; font-size: 12px; }
-
-    .wrap { max-width: 1120px; margin: 0 auto; padding: 28px 28px 60px; }
-
-    /* ---- hero ---- */
-    .hero {
-      border-radius: 22px; padding: 30px 32px; margin-bottom: 24px; position: relative; overflow: hidden;
-      background: linear-gradient(135deg, #171512, #0d0d0c 62%); color: #fff;
-      box-shadow: var(--shadow);
-    }
-    .hero::after {
-      content: ""; position: absolute; inset: auto -90px -140px auto; width: 320px; height: 320px; border-radius: 50%;
-      background: radial-gradient(circle, rgba(223,199,125,.28), transparent 62%);
-    }
-    .hero-eyebrow { font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--gold-soft); }
-    .hero h1 { font-size: clamp(26px, 3.4vw, 36px); font-weight: 800; margin-top: 8px; letter-spacing: -.01em; }
-    .hero p { color: rgba(255,255,255,.62); margin-top: 8px; max-width: 560px; font-size: 14px; }
-    .quick-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 22px; position: relative; }
-    .quick-action {
-      display: inline-flex; align-items: center; gap: 7px; min-height: 36px; padding: 8px 15px 8px 12px;
-      border-radius: 999px; background: rgba(255,255,255,.08); border: 1px solid rgba(255,255,255,.14);
-      color: #fff; font-size: 12.5px; font-weight: 700; transition: .15s ease;
-    }
-    .quick-action:hover { background: rgba(255,255,255,.16); border-color: rgba(255,255,255,.26); transform: translateY(-1px); }
-    .quick-action.primary { background: linear-gradient(135deg, #dfc27b, #a88648); color: #111; border-color: transparent; }
-
-    .stat-strip { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 10px; margin-top: 22px; position: relative; }
-    .stat { padding: 13px 15px; border-radius: 14px; background: rgba(255,255,255,.07); border: 1px solid rgba(255,255,255,.1); }
-    .stat-value { font-size: 22px; font-weight: 800; }
-    .stat-label { font-size: 11px; color: rgba(255,255,255,.5); margin-top: 2px; }
-
-    /* ---- sections ---- */
-    .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin: 30px 0 12px; }
-    .section-title { font-size: 16px; font-weight: 800; }
-    .section-count { font-size: 12px; font-weight: 700; color: var(--muted); background: rgba(21,19,17,.06); border-radius: 999px; padding: 2px 9px; margin-left: 8px; }
-    .section-link { font-size: 12.5px; font-weight: 700; color: var(--gold); }
-
-    .attention-list { display: flex; flex-direction: column; gap: 8px; }
-    .attention-row {
-      display: grid; grid-template-columns: 9px minmax(0,1fr) 120px auto; align-items: center; gap: 14px;
-      padding: 13px 16px; border-radius: 14px; background: var(--panel); border: 1px solid rgba(255,255,255,.72);
-      box-shadow: var(--shadow); backdrop-filter: blur(14px); transition: .15s ease;
-    }
-    .attention-row:hover { transform: translateY(-1px); border-color: rgba(185,149,79,.28); }
-    .dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
-    .dot-red { background: var(--red); } .dot-amber { background: var(--amber); }
-    .attention-name { font-size: 13.5px; font-weight: 720; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .attention-meta { font-size: 12px; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .attention-script { font-size: 11.5px; color: var(--muted); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .pill { font-size: 11px; font-weight: 800; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
-    .pill-fail { background: rgba(201,73,61,.1); color: var(--red); border: 1px solid rgba(201,73,61,.16); }
-    .pill-blocked { background: rgba(199,122,27,.12); color: var(--amber); border: 1px solid rgba(199,122,27,.18); }
-    .empty { padding: 22px; border-radius: 14px; background: rgba(31,157,90,.07); border: 1px solid rgba(31,157,90,.16); color: var(--green); font-size: 13px; font-weight: 700; text-align: center; }
-
-    .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 12px; }
-    .update-card {
-      padding: 18px; border-radius: 16px; background: var(--panel); border: 1px solid rgba(255,255,255,.72);
-      box-shadow: var(--shadow); backdrop-filter: blur(14px); transition: .15s ease;
-    }
-    .update-card:hover { transform: translateY(-2px); border-color: rgba(185,149,79,.28); }
-    .update-icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; margin-bottom: 12px; background: rgba(185,149,79,.12); color: #7d5d22; }
-    .update-title { font-size: 13.5px; font-weight: 750; }
-    .update-desc { font-size: 12px; color: var(--muted); margin-top: 4px; line-height: 1.45; }
-    .update-meta { display: flex; align-items: center; gap: 7px; margin-top: 10px; }
-
-    .run-list { display: flex; flex-direction: column; gap: 7px; }
-    .run-row {
-      display: grid; grid-template-columns: 9px minmax(0,1fr) 90px 70px; align-items: center; gap: 14px;
-      padding: 12px 16px; border-radius: 14px; background: var(--panel); border: 1px solid rgba(255,255,255,.72);
-      box-shadow: var(--shadow); backdrop-filter: blur(14px);
-    }
-    .run-name { font-size: 13px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .run-meta { font-size: 11.5px; color: var(--muted); }
-    .run-duration { font-size: 12px; color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
-
-    @media (max-width: 720px) {
-      .stat-strip { grid-template-columns: repeat(2, minmax(0,1fr)); }
-      .topbar-search { display: none; }
-      .attention-row { grid-template-columns: 9px minmax(0,1fr) auto; }
-      .attention-script { display: none; }
-      .run-row { grid-template-columns: 9px minmax(0,1fr) 70px; }
-      .run-meta { display: none; }
-    }
+    .choice:hover { transform: translateY(-3px); border-color: rgba(216,186,114,.5); background: rgba(28,26,22,.9); }
+    .choice-icon { width: 46px; height: 46px; border-radius: 13px; display: grid; place-items: center; margin-bottom: 16px; background: linear-gradient(135deg, #dfc27b, #9b7740); color: #111; }
+    .choice h2 { font-size: 17px; font-weight: 750; }
+    .choice p { color: #9a9488; font-size: 13px; margin-top: 6px; line-height: 1.5; }
+    .footer { margin-top: 30px; display: flex; gap: 18px; align-items: center; color: #6f6a61; font-size: 12px; }
+    .footer a { color: #bcb5a8; text-decoration: none; }
+    .footer a:hover { color: #f7f3ea; }
+    @media (max-width: 560px) { .choices { grid-template-columns: 1fr; } }
   </style>
 </head>
 <body>
-  <header class="topbar">
-    <a href="/" class="topbar-brand">
-      <div class="brand-icon">EX3</div>
-      <div class="brand-name">EX3 TestOps</div>
+  <div class="mark">EX3</div>
+  <div class="hello">Welcome back, {{ current_user.name if current_user.name is defined and current_user.name else current_user.username }}</div>
+  <h1>What are we testing today?</h1>
+  <p class="sub">Start a fresh script, or pick up where the team left off.</p>
+
+  <div class="choices">
+    <a class="choice" href="/vault/upload">
+      <div class="choice-icon">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0l-4 4m4-4l4 4M4 17v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1"/></svg>
+      </div>
+      <h2>Upload your own</h2>
+      <p>Drop in a new UAT workbook. It's filed under your company — just pick the module.</p>
     </a>
-    <div class="topbar-search">
-      <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-      <input type="text" placeholder="Search workbooks, scenarios, runs..." disabled />
-    </div>
-    <div class="topbar-right">
-      <a class="topbar-link" href="/history">Run history</a>
-      {% if current_user.role in ["admin", "owner"] %}
-      <a class="topbar-link" href="/admin/companies">Companies</a>
-      <a class="topbar-link" href="/admin/users">Users</a>
-      {% endif %}
-      <a class="topbar-link" href="/logout">Sign out</a>
-      <div class="avatar">{{ (current_user.name if current_user.name is defined and current_user.name else current_user.username)[0]|upper }}</div>
-    </div>
-  </header>
-
-  <div class="wrap">
-    <section class="hero">
-      <div class="hero-eyebrow">EX3 Automation &middot; SuccessFactors assurance</div>
-      <h1>Good {{ "morning" if now_hour < 12 else ("afternoon" if now_hour < 18 else "evening") }}, {{ current_user.name if current_user.name is defined and current_user.name else current_user.username }}</h1>
-      <p>What are we testing today? Start a fresh script, or pick up where the team left off.</p>
-      <div class="quick-actions">
-        <a class="quick-action primary" href="/vault/upload">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 16V4m0 0l-4 4m4-4l4 4M4 17v1a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1"/></svg>
-          Upload a workbook
-        </a>
-        <a class="quick-action" href="/vault">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
-          Open the Vault
-        </a>
-        <a class="quick-action" href="/history">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-          Run history
-        </a>
-        <a class="quick-action" href="/testing-hub">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M9 3h6M10 3v6l-5 9a2 2 0 0 0 2 3h10a2 2 0 0 0 2-3l-5-9V3"/></svg>
-          Testing Hub
-        </a>
-        <a class="quick-action" href="/library">
-          <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M4 19.5A2.5 2.5 0 016.5 17H20M4 19.5A2.5 2.5 0 006.5 22H20V4a2 2 0 00-2-2H6a2 2 0 00-2 2v15.5z"/></svg>
-          Step Library
-        </a>
+    <a class="choice" href="/vault">
+      <div class="choice-icon">
+        <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/></svg>
       </div>
-      <div class="stat-strip">
-        <div class="stat"><div class="stat-value">{{ all_stats.total }}</div><div class="stat-label">Test cases tracked</div></div>
-        <div class="stat"><div class="stat-value">{{ all_stats.passing }}</div><div class="stat-label">Passing</div></div>
-        <div class="stat"><div class="stat-value">{{ all_stats.failing }}</div><div class="stat-label">Needs focus</div></div>
-        <div class="stat"><div class="stat-value">{{ all_stats.blocked }}</div><div class="stat-label">Blocked</div></div>
-      </div>
-    </section>
+      <h2>Continue with existing</h2>
+      <p>Open the Vault — your scripts, filed by company and module.</p>
+    </a>
+  </div>
 
-    <div class="section-head">
-      <div class="section-title">Needs Attention{% if needs_attention %}<span class="section-count">{{ needs_attention|length }}</span>{% endif %}</div>
-    </div>
-    {% if needs_attention %}
-    <div class="attention-list">
-      {% for item in needs_attention %}
-      <a href="/scenario/{{ item.id }}?script={{ item.script|urlencode }}" class="attention-row">
-        <span class="dot {{ 'dot-red' if item.status == 'fail' else 'dot-amber' }}"></span>
-        <div>
-          <div class="attention-name">{{ item.name }}</div>
-          <div class="attention-meta">{{ item.id }} &middot; {{ item.role }}</div>
-        </div>
-        <span class="pill {{ 'pill-fail' if item.status == 'fail' else 'pill-blocked' }}">{{ 'Failing' if item.status == 'fail' else 'Blocked' }}</span>
-        <span class="attention-script">{{ item.script_name }}</span>
-      </a>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty">Nothing needs attention right now — every tracked scenario is passing or not yet tested.</div>
-    {% endif %}
-
-    <div class="section-head">
-      <div class="section-title">Workbooks{% if workbooks %}<span class="section-count">{{ workbooks|length }}</span>{% endif %}</div>
-      <a class="section-link" href="/vault">View all &rarr;</a>
-    </div>
-    {% if workbooks %}
-    <div class="card-grid">
-      {% for wb in workbooks[:8] %}
-      <a class="update-card" href="/?script={{ wb.key|urlencode }}">
-        <div class="update-icon">
-          <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8"><path stroke-linecap="round" stroke-linejoin="round" d="M9 12h6m-6 4h6M9 8h1m5 13H6a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l4.414 4.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
-        </div>
-        <div class="update-title">{{ wb.name }}</div>
-        <div class="update-desc">{{ wb.scenario_count }} scenario{{ '' if wb.scenario_count == 1 else 's' }} &middot; {{ wb.step_count }} steps</div>
-      </a>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty" style="background:rgba(21,19,17,.04);border-color:var(--line);color:var(--muted);">No workbooks uploaded yet — <a href="/vault/upload" style="color:var(--gold);font-weight:700;">upload your first one</a>.</div>
-    {% endif %}
-
-    <div class="section-head">
-      <div class="section-title">Recent Activity</div>
-      <a class="section-link" href="/history">View all &rarr;</a>
-    </div>
-    {% if recent_runs %}
-    <div class="run-list">
-      {% for run in recent_runs %}
-      <a href="/history/{{ run.id }}" class="run-row">
-        <span class="dot {{ 'dot-red' if run.status in ('failed', 'error') else '' }}" style="{{ '' if run.status in ('failed','error') else 'background:var(--green);' }}"></span>
-        <div>
-          <div class="run-name">{{ run.scenario_name }}</div>
-          <div class="run-meta">{{ run.user.username if run.user is defined else '' }} &middot; {{ run.company }}</div>
-        </div>
-        <span class="pill {{ 'pill-fail' if run.status in ('failed','error') else 'pill-blocked' }}" style="{{ '' if run.status in ('failed','error') else 'background:rgba(31,157,90,.1);color:var(--green);border-color:rgba(31,157,90,.16);' }}">{{ run.status|capitalize }}</span>
-        <span class="run-duration">{{ run.duration }}</span>
-      </a>
-      {% endfor %}
-    </div>
-    {% else %}
-    <div class="empty" style="background:rgba(21,19,17,.04);border-color:var(--line);color:var(--muted);">No runs recorded yet.</div>
-    {% endif %}
+  <div class="footer">
+    <a href="/history">Run history</a>
+    {% if current_user.role in ["admin", "owner"] %}<a href="/admin/companies">Companies</a><a href="/admin/users">Users</a>{% endif %}
+    <a href="/logout">Sign out</a>
   </div>
 </body>
 </html>
