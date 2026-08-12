@@ -1,0 +1,8 @@
+FROM node:20-slim
+WORKDIR /app
+COPY dobble-party/package.json dobble-party/package-lock.json ./
+RUN npm ci --omit=dev
+COPY dobble-party/ ./
+ENV NODE_ENV=production
+EXPOSE 3000
+CMD ["node", "server.js"]
