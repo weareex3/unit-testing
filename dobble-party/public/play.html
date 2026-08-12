@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+  <title>Dobble Party — Play</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h1>💘 Our Favourite Things</h1>
+
+    <div class="panel" id="joinPanel">
+      <label for="codeInput">Room code</label>
+      <input type="text" id="codeInput" maxlength="4" autocapitalize="characters" />
+      <label for="nameInput">Your name</label>
+      <input type="text" id="nameInput" maxlength="20" placeholder="e.g. Lily" />
+      <button class="btn" id="joinBtn">Join Game</button>
+      <p id="joinError" style="color:#c0392b;"></p>
+    </div>
+
+    <div class="panel hidden" id="waitingPanel">
+      <h2>You're in! 🎉</h2>
+      <p id="waitingText">Waiting for the host to start...</p>
+    </div>
+
+    <div class="panel hidden" id="gameArea">
+      <div class="round-info">Round <span id="roundNum"></span> / <span id="totalRounds"></span></div>
+      <div class="cards-wrap">
+        <div class="card" id="cardA"></div>
+        <div class="card" id="cardB"></div>
+      </div>
+    </div>
+
+    <div class="panel hidden" id="gameOver">
+      <h2>🏆 Final Scores</h2>
+      <div class="leaderboard" id="finalLeaderboard"></div>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="resultOverlay">
+    <div class="overlay-card">
+      <div class="overlay-emoji" id="resultEmoji"></div>
+      <h2 id="resultTitle"></h2>
+      <p id="resultLabel"></p>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/layout.js"></script>
+  <script src="/play.js"></script>
+</body>
+</html>

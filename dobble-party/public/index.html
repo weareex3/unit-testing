@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dobble Party — Host</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <div class="wrap">
+    <h1>💘 Our Favourite Things</h1>
+    <p class="subtitle">Spot the match — scan to join on your phone</p>
+
+    <div class="panel" id="setup">
+      <label for="roundsInput">Number of rounds</label>
+      <input type="number" id="roundsInput" min="5" max="28" value="15" />
+      <button class="btn" id="createBtn">Create Game</button>
+    </div>
+
+    <div class="panel hidden" id="lobby">
+      <div class="room-code" id="roomCode"></div>
+      <img id="qrImg" alt="QR code to join" />
+      <div class="join-url" id="joinUrlText"></div>
+      <h3>Players (<span id="playerCount">0</span>)</h3>
+      <ul id="playerList"></ul>
+      <button class="btn" id="startBtn" disabled>Start Game</button>
+    </div>
+
+    <div class="panel hidden" id="gameArea">
+      <div class="round-info">Round <span id="roundNum"></span> / <span id="totalRounds"></span></div>
+      <div class="cards-wrap">
+        <div class="card" id="cardA"></div>
+        <div class="card" id="cardB"></div>
+      </div>
+      <div class="leaderboard" id="leaderboard"></div>
+    </div>
+
+    <div class="panel hidden" id="gameOver">
+      <h2>🏆 Final Scores</h2>
+      <div class="leaderboard" id="finalLeaderboard"></div>
+      <button class="btn" id="playAgainBtn">Play Again</button>
+    </div>
+  </div>
+
+  <div class="overlay hidden" id="resultOverlay">
+    <div class="overlay-card">
+      <div class="overlay-emoji" id="resultEmoji"></div>
+      <h2 id="resultTitle"></h2>
+      <p id="resultLabel"></p>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="/layout.js"></script>
+  <script src="/host.js"></script>
+</body>
+</html>
