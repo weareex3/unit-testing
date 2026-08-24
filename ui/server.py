@@ -146,12 +146,12 @@ _LAB_LEARNED: dict[str, object] = {"run_id": "", "commands": []}
 _BATCH_AGENT_IO: dict[str, object] = {"answer": None, "decision": None}
 _BATCH_RUNS: dict[str, dict] = {}
 
-# Selectable agent-brain models for the Testing Hub A/B toggle. label -> model id.
+# Selectable agent-brain models for the Testing Hub / Run All toggle. label -> model id.
 _AGENT_MODELS: dict[str, str] = {
-    "claude-opus-4-8": "Opus 4.8 (default)",
-    "claude-fable-5": "Fable 5 (new)",
+    "claude-opus-5": "Opus 5 (default)",
+    "claude-opus-4-8": "Opus 4.8",
 }
-_AGENT_MODEL_DEFAULT = "claude-opus-4-8"
+_AGENT_MODEL_DEFAULT = "claude-opus-5"
 
 # Pause/resume state: scenario_id -> {event, fix}
 _PAUSE_EVENTS: dict[str, threading.Event] = {}
@@ -3392,7 +3392,7 @@ async def api_lab_run(request: Request):
     grounding_mode = bool(body.get("grounding"))
     model = str(body.get("model", "")).strip()
     if model not in _AGENT_MODELS:
-        model = "claude-opus-4-8"
+        model = _AGENT_MODEL_DEFAULT
     if not goal:
         return JSONResponse({"ok": False, "error": "Describe what to do first."}, status_code=400)
     if _ACTIVE_RUNS.get("agent", {}).get("status") in ("running", "awaiting_confirm", "waiting_input"):

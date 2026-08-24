@@ -160,7 +160,7 @@ Available commands (one per line):
 Output ONLY commands. No explanation, no markdown, no blank lines between commands."""
 
         msg = client.messages.create(
-            model="claude-opus-4-8",
+            model="claude-opus-5",
             max_tokens=1024,
             system=(
                 "You are an expert in SAP SuccessFactors UI automation. You have deep knowledge of "
