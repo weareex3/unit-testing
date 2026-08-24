@@ -1588,6 +1588,7 @@
         fd.append('scenario_id', SCENARIO_ID);
         fd.append('step_id', stepId);
         fd.append('status', btn.dataset.set);
+        fd.append('script', SCRIPT_KEY);
         const res = await fetch('/api/step-status', { method: 'POST', body: fd });
         if (res.ok) window.location.reload();
       });

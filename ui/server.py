@@ -601,23 +601,67 @@ def _save_feedback(data: dict) -> None:
     FEEDBACK_FILE.write_text(json.dumps(data, indent=2))
 
 
-def _load_statuses() -> dict:
-    if STATUS_FILE.exists():
-        try:
-            return json.loads(STATUS_FILE.read_text())
-        except Exception:
-            return {}
-    return {}
+# Two different workbooks routinely reuse the same Script ID (it's an author-chosen
+# convention like "LOGIN-102", not a content hash) - so statuses are stored PER
+# WORKBOOK, not globally by scenario_id. Otherwise a brand-new upload that happens to
+# reuse an ID from an old/unrelated script instantly shows as already-tested. Legacy
+# data (written before this scoping existed) lives under _LEGACY_STATUS_KEY so nothing
+# already-marked silently vanishes on upgrade.
+_LEGACY_STATUS_KEY = "__legacy__"
 
 
-def _save_statuses(data: dict) -> None:
+def _status_bucket_key(workbook: str | None) -> str:
+    return workbook or _LEGACY_STATUS_KEY
+
+
+def _load_all_statuses() -> dict:
+    """Raw on-disk shape: {workbook_key: {scenario_id: {step_id: status}}}. A
+    file written before per-workbook scoping existed is flat
+    ({scenario_id: {step_id: status}}) - detected by sniffing one leaf value's
+    type and migrated under _LEGACY_STATUS_KEY, in memory only (not rewritten
+    to disk until something next saves)."""
+    if not STATUS_FILE.exists():
+        return {}
+    try:
+        raw = json.loads(STATUS_FILE.read_text())
+    except Exception:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    is_legacy_flat = any(
+        isinstance(v, dict) and v and all(isinstance(leaf, str) for leaf in v.values())
+        for v in raw.values()
+    )
+    if is_legacy_flat:
+        return {_LEGACY_STATUS_KEY: raw}
+    return raw
+
+
+def _save_all_statuses(data: dict) -> None:
     STATUS_FILE.write_text(json.dumps(data, indent=2))
 
 
-def _reset_scenario_evidence(scenario_ids) -> None:
+def _load_statuses(workbook: str | None = None) -> dict:
+    """Scenario statuses for one workbook: {scenario_id: {step_id: status}}."""
+    return _load_all_statuses().get(_status_bucket_key(workbook), {})
+
+
+def _save_statuses(workbook: str | None, scenario_statuses: dict) -> None:
+    all_data = _load_all_statuses()
+    key = _status_bucket_key(workbook)
+    if scenario_statuses:
+        all_data[key] = scenario_statuses
+    else:
+        all_data.pop(key, None)
+    _save_all_statuses(all_data)
+
+
+def _reset_scenario_evidence(scenario_ids, workbook: str | None = None) -> None:
     """RULE: a freshly-uploaded test script starts clean. Wipe prior run evidence
     (videos/screenshots/last-run logs/statuses) for its scenarios, so deleting a
-    script and re-uploading the same workbook doesn't show stale old runs."""
+    script and re-uploading the same (or an id-colliding) workbook doesn't show
+    stale old runs or statuses. `workbook` scopes the status wipe to just that
+    workbook's bucket - other scripts sharing an id are untouched."""
     ids = {str(s) for s in (scenario_ids or []) if s}
     if not ids:
         return
@@ -627,12 +671,12 @@ def _reset_scenario_evidence(scenario_ids) -> None:
             (RUNS_DIR / f"{sid}_last_run.json").unlink()
         except Exception:
             pass
-    try:                                              # statuses
-        st = _load_statuses()
+    try:                                              # statuses (this workbook's bucket only)
+        st = _load_statuses(workbook)
         if any(sid in st for sid in ids):
             for sid in ids:
                 st.pop(sid, None)
-            _save_statuses(st)
+            _save_statuses(workbook, st)
     except Exception:
         pass
     try:                                              # run folders (videos/screenshots/audit)
@@ -654,8 +698,8 @@ def _reset_scenario_evidence(scenario_ids) -> None:
         pass
 
 
-def _step_status(scenario_id: str, step_id: str) -> str:
-    return _load_statuses().get(scenario_id, {}).get(step_id, "not_tested")
+def _step_status(workbook: str | None, scenario_id: str, step_id: str) -> str:
+    return _load_statuses(workbook).get(scenario_id, {}).get(step_id, "not_tested")
 
 
 def _utc_now() -> str:
@@ -1910,7 +1954,8 @@ async def vault_upload(request: Request, file: UploadFile = File(...), module: s
         "uploaded_at": _utc_now(),
     }
     _save_vault_index(index)
-    _reset_scenario_evidence(new_ids)   # fresh script → fresh start (no stale runs/videos)
+    vault_key = f"{company_key}/{module_seg}/{target.name}"
+    _reset_scenario_evidence(new_ids, workbook=vault_key)   # fresh script → fresh start (no stale runs/videos/statuses)
     return RedirectResponse("/vault", status_code=303)
 
 
@@ -1960,6 +2005,11 @@ async def upload_script(file: UploadFile = File(...)):
     if sanity_error:
         target.unlink(missing_ok=True)
         raise HTTPException(400, sanity_error)
+    try:
+        new_ids = {s.scenario_id for s in parse_workbook(str(target))}
+        _reset_scenario_evidence(new_ids, workbook=target.name)   # fresh script → fresh start
+    except Exception:
+        pass
     return RedirectResponse(f"/?script={target.name}", status_code=303)
 
 
@@ -2022,9 +2072,10 @@ def _load_scenarios(workbook: str | None = None):
     return scenarios
 
 
-def _scenario_status(scenario_id: str, total_steps: int = 0) -> dict:
-    """Return scenario-level status combining manual step marks + latest run."""
-    manual = _load_statuses().get(scenario_id, {})
+def _scenario_status(workbook: str | None, scenario_id: str, total_steps: int = 0) -> dict:
+    """Return scenario-level status combining manual step marks + latest run,
+    scoped to one workbook (see _load_statuses)."""
+    manual = _load_statuses(workbook).get(scenario_id, {})
     statuses = list(manual.values())
 
     if "fail" in statuses:
@@ -2058,7 +2109,7 @@ def _grouped_scenarios(workbook: str | None = None):
     groups = defaultdict(list)
     OTHER = "Tasks"
     for s in scenarios:
-        status = _scenario_status(s.scenario_id, total_steps=len(s.steps))
+        status = _scenario_status(workbook, s.scenario_id, total_steps=len(s.steps))
         entry = {
             "id": s.scenario_id,
             "name": s.name,
@@ -2084,9 +2135,20 @@ def _grouped_scenarios(workbook: str | None = None):
 
 
 def _stats(workbook: str | None = None):
+    if workbook is None:
+        # No single workbook to scope statuses to - sum each workbook's own
+        # scoped stats rather than looking up scenario_id globally, which
+        # would double-count/cross-contaminate scenarios that share an id
+        # across different scripts.
+        totals = {"total": 0, "passing": 0, "failing": 0, "blocked": 0}
+        for wb in _workbooks():
+            wb_stats = _stats(wb["key"])
+            for k in totals:
+                totals[k] += wb_stats[k]
+        return totals
     scenarios = _load_scenarios(workbook)
     statuses = [
-        _scenario_status(s.scenario_id, total_steps=len(s.steps))["status"]
+        _scenario_status(workbook, s.scenario_id, total_steps=len(s.steps))["status"]
         for s in scenarios
     ]
     return {
@@ -3671,7 +3733,7 @@ def scenario_detail(request: Request, scenario_id: str):
         }
         break
 
-    statuses = _load_statuses().get(scenario_id, {})
+    statuses = _load_statuses(selected_script or None).get(scenario_id, {})
     step_statuses = {step.step_id: statuses.get(step.step_id, "not_tested") for step in scenario.steps}
 
     feedback = _load_feedback().get(scenario_id, {})
@@ -4806,16 +4868,18 @@ def set_step_feedback(
 
 
 @app.post("/api/step-status")
-def set_step_status(request: Request, scenario_id: str = Form(...), step_id: str = Form(...), status: str = Form(...)):
+def set_step_status(request: Request, scenario_id: str = Form(...), step_id: str = Form(...),
+                     status: str = Form(...), script: str = Form("")):
     if status not in VALID_STATUSES:
         raise HTTPException(400, f"Invalid status; must be one of {VALID_STATUSES}")
-    data = _load_statuses()
+    workbook = script.strip() or None
+    data = _load_statuses(workbook)
     data.setdefault(scenario_id, {})[step_id] = status
     if status == "not_tested":
         data[scenario_id].pop(step_id, None)
         if not data[scenario_id]:
             data.pop(scenario_id)
-    _save_statuses(data)
+    _save_statuses(workbook, data)
     _append_audit(
         _latest_run_id_for_scenario(scenario_id),
         "manual_step_status",

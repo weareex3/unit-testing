@@ -47,7 +47,7 @@
   .group-meta { font-size:12px; color:var(--muted); }
   .scenario-list { display:flex; flex-direction:column; gap:7px; }
   .scenario-row {
-    display:grid; grid-template-columns: 10px 116px minmax(0,1fr) 140px 74px auto;
+    display:grid; grid-template-columns: 116px minmax(0,1fr) 140px 108px 74px auto;
     align-items:center; gap:14px; min-height:58px; padding:13px 16px;
     background:rgba(255,255,255,.78); border:1px solid rgba(255,255,255,.82);
     border-radius:14px; color:var(--ink); transition:.15s ease; box-shadow:0 8px 24px rgba(32,27,20,.045);
@@ -57,10 +57,21 @@
   .scenario-role { font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .scenario-steps { font-size:12px; color:var(--muted); font-variant-numeric:tabular-nums; text-align:right; }
   .memory-pill { font-size:11px; font-weight:800; color:#7d5d22; background:rgba(185,149,79,.12); border:1px solid rgba(185,149,79,.22); border-radius:999px; padding:3px 9px; }
+  .status-badge { justify-self:start; font-size:11px; font-weight:800; border-radius:999px; padding:5px 11px; white-space:nowrap; }
+  .status-badge.st-pass { color:#1f9d5a; background:rgba(31,157,90,.12); border:1px solid rgba(31,157,90,.22); }
+  .status-badge.st-fail { color:#c9493d; background:rgba(201,73,61,.12); border:1px solid rgba(201,73,61,.22); }
+  .status-badge.st-blocked { color:#b9954f; background:rgba(185,149,79,.14); border:1px solid rgba(185,149,79,.26); }
+  .status-badge.st-not_tested { color:var(--muted); background:rgba(120,113,100,.08); border:1px solid rgba(120,113,100,.16); }
+  .row-run-btn {
+    justify-self:end; min-height:32px; padding:0 14px; border-radius:9px; font-size:12px; font-weight:800;
+    color:#111; background:linear-gradient(135deg,#dfc27b,#a88648); border:0; display:inline-flex; align-items:center; gap:6px;
+    white-space:nowrap;
+  }
+  .row-run-btn:hover { filter:brightness(1.04); }
   @media (max-width: 1040px) {
     .hero { grid-template-columns: 1fr; }
-    .scenario-row { grid-template-columns: 10px 100px minmax(0,1fr) 70px; }
-    .scenario-role, .memory-pill { display:none; }
+    .scenario-row { grid-template-columns: 96px minmax(0,1fr) 90px auto; }
+    .scenario-role, .scenario-steps, .memory-pill { display:none; }
   }
   @media (max-width: 720px) {
     .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -104,7 +115,7 @@
     <section style="margin:4px 0 20px;">
       <button id="match-btn" type="button" class="btn" style="background:linear-gradient(135deg,#dfc27b,#a88648);color:#111;font-weight:800;gap:8px;">
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
-        Match with tasks
+        Match these
       </button>
       <a href="/batch?script={{ selected_workbook|urlencode }}" class="btn btn-secondary" style="margin-left:8px;font-weight:800;gap:8px;">
         <svg width="15" height="15" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -166,16 +177,26 @@
         </div>
         <div class="scenario-list">
           {% for s in group.scenarios %}
-          <a href="/scenario/{{ s.id }}?script={{ selected_workbook|urlencode }}" data-card data-status="{{ s.status }}" data-search="{{ s.id }} {{ s.name|lower }} {{ s.role|lower }}" class="scenario-row">
-            <span class="dot {% if s.status == 'pass' %}dot-green{% elif s.status == 'fail' %}dot-red{% elif s.status == 'blocked' %}dot-orange{% else %}dot-gray{% endif %}"></span>
-            <span class="badge badge-id">{{ s.id }}</span>
-            <span class="scenario-name">{{ s.name }}</span>
+          <div data-card data-status="{{ s.status }}" data-search="{{ s.id }} {{ s.name|lower }} {{ s.role|lower }}" class="scenario-row">
+            <a href="/scenario/{{ s.id }}?script={{ selected_workbook|urlencode }}" class="badge badge-id" style="text-decoration:none;">{{ s.id }}</a>
+            <a href="/scenario/{{ s.id }}?script={{ selected_workbook|urlencode }}" class="scenario-name" style="color:inherit;text-decoration:none;">{{ s.name }}</a>
             <span class="scenario-role">{{ s.role }}</span>
             <span class="scenario-steps">{{ s.passed_steps }}/{{ s.step_count }}</span>
-            {% if s.status == 'fail' or (s.id == 'RCM-RC-101') %}
-            <span class="memory-pill">Training</span>
-            {% endif %}
-          </a>
+            <span class="status-badge st-{{ s.status }}">
+              {%- if s.status == 'pass' -%}Pass
+              {%- elif s.status == 'fail' -%}Fail
+              {%- elif s.status == 'blocked' -%}Blocked
+              {%- else -%}Not tested
+              {%- endif -%}
+            </span>
+            <a href="/batch?script={{ selected_workbook|urlencode }}&only={{ s.id|urlencode }}" class="row-run-btn">
+              <svg width="11" height="11" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+              Run
+            </a>
+          </div>
+          {% if s.status == 'fail' %}
+          <div style="margin:-3px 0 4px 132px;"><span class="memory-pill">Training</span></div>
+          {% endif %}
           {% endfor %}
         </div>
       </section>
