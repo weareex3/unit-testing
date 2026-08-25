@@ -306,12 +306,16 @@
         <h3 style="font-size:22px;font-weight:800;color:var(--ink);margin:4px 0 6px;">Memory check</h3>
         <p id="preflight-summary" style="font-size:13px;color:var(--muted);margin:0;">Checking saved tasks...</p>
       </div>
-      <div class="confidence-ring" id="preflight-ring" style="--pct:0"><span id="preflight-confidence">0%</span></div>
+      <div style="text-align:center;">
+        <div class="confidence-ring" id="preflight-ring" style="--pct:0"><span id="preflight-confidence">0%</span></div>
+        <div style="font-size:10px;font-weight:700;color:var(--muted);margin-top:4px;">steps known</div>
+      </div>
     </div>
     <div class="preflight-match">
       <div style="font-size:12px;color:var(--muted);margin-bottom:3px;">Suggestion only — not applied unless you choose it below</div>
       <div id="preflight-task" style="font-size:16px;font-weight:800;color:var(--ink);">None yet</div>
       <div id="preflight-reason" style="font-size:12px;color:var(--muted);margin-top:5px;"></div>
+      <div id="preflight-ai-estimate" style="font-size:12px;font-weight:700;color:#6d4fc7;margin-top:8px;display:none;" title=""></div>
     </div>
     <label style="display:block;font-size:12px;font-weight:800;color:var(--ink);margin-bottom:6px;">What should this run use?</label>
     <select id="preflight-force-task" class="input" style="margin-bottom:14px;">
@@ -1036,15 +1040,23 @@
   }
 
   function _renderPreflight(data) {
-    const confidence = Number(data.confidence || 0);
+    const coveragePct = Number(data.coverage_pct || 0);
     const matched = data.matched_task || '';
-    document.getElementById('preflight-ring').style.setProperty('--pct', confidence);
-    document.getElementById('preflight-confidence').textContent = `${confidence}%`;
+    document.getElementById('preflight-ring').style.setProperty('--pct', coveragePct);
+    document.getElementById('preflight-confidence').textContent = `${coveragePct}%`;
     document.getElementById('preflight-task').textContent = matched || 'No saved task matched';
     document.getElementById('preflight-reason').textContent = data.reason || (matched ? '' : 'This will run fresh unless you force a saved task.');
     document.getElementById('preflight-summary').textContent = matched
-      ? `This looks like your "${matched}" task (${data.covered_count || 0}/${data.total || 0} steps). It will run this scenario's OWN saved steps unless you choose otherwise below.`
+      ? `This looks like your "${matched}" task (${data.covered_count || 0}/${data.total || 0} steps known). It will run this scenario's OWN saved steps unless you choose otherwise below.`
       : "Will run this scenario's own saved steps.";
+    const estEl = document.getElementById('preflight-ai-estimate');
+    if (data.ai_estimate === null || data.ai_estimate === undefined) {
+      estEl.style.display = 'none';
+    } else {
+      estEl.style.display = 'block';
+      estEl.title = data.ai_estimate_reason || "Claude's own estimate, not a guarantee.";
+      estEl.textContent = `Claude's estimate: ${data.ai_estimate}% likely to complete this end-to-end`;
+    }
 
     const select = document.getElementById('preflight-force-task');
     const tasks = data.library_tasks || [];
@@ -1070,9 +1082,9 @@
     try {
       const url = `/api/coverage/${SCENARIO_ID}?script=${encodeURIComponent(SCRIPT_KEY || '')}`;
       const data = await (await fetch(url)).json();
-      _renderPreflight(data.ok ? data : {steps: [], confidence: 0, library_tasks: []});
+      _renderPreflight(data.ok ? data : {steps: [], coverage_pct: 0, library_tasks: []});
     } catch(e) {
-      _renderPreflight({steps: [], confidence: 0, library_tasks: []});
+      _renderPreflight({steps: [], coverage_pct: 0, library_tasks: []});
     }
     document.getElementById('preflight-modal').style.display = 'flex';
     return new Promise(resolve => { _preflightResolve = resolve; });

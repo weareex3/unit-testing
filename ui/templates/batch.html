@@ -49,6 +49,9 @@
   .progress-track { height:7px; border-radius:999px; background:rgba(255,255,255,.1); overflow:hidden; }
   .progress-fill { height:100%; width:0%; background:linear-gradient(90deg,#dfc27b,#1f9d5a); transition:.35s ease; }
   .progress-label { margin-top:4px; font-size:11px; color:rgba(248,244,234,.64); }
+  /* Pre-run state: a fact (known steps) and a labeled AI guess - never the run-progress bar. */
+  .coverage-line { font-size:11px; font-weight:800; color:rgba(248,244,234,.72); white-space:nowrap; }
+  .ai-estimate-badge { margin-top:6px; font-size:11px; font-weight:800; color:#c9b3ff; white-space:nowrap; cursor:help; }
   .status-link { display:grid; gap:4px; }
   .video-link { color:#dfc27b; font-size:12px; font-weight:800; }
   .row-time { color:rgba(248,244,234,.54); font-size:11px; }
@@ -225,11 +228,12 @@ let libraryTasks = [];   // all saved task names, for the source picker
 
 function esc(v){ return String(v || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
 
-// Confidence -> traffic light (>=80 green/saved, 20-79 amber/partial, <20 red/unknown)
-function lightClass(conf){ return conf >= 80 ? 'green' : (conf >= 20 ? 'amber' : 'red'); }
-function lightTitle(conf){ return conf >= 80 ? 'Saved — will replay' : (conf >= 20 ? 'Partial match' : 'Unknown — under 20% confident'); }
+// Known-step coverage (a hard fact, not a guess) -> traffic light
+// (>=80% green/saved, 20-79% amber/partial, <20% red/mostly unknown)
+function lightClass(coveragePct){ return coveragePct >= 80 ? 'green' : (coveragePct >= 20 ? 'amber' : 'red'); }
+function lightTitle(coveragePct){ return coveragePct >= 80 ? 'Saved — will replay' : (coveragePct >= 20 ? 'Partial match' : 'Under 20% of steps known'); }
 // Smart default: green -> library replay; amber/red (or no match) -> Claude Opus
-function defaultMode(item){ return ((item.confidence || 0) >= 80 && item.matched_task) ? 'library' : 'opus'; }
+function defaultMode(item){ return ((item.coverage_pct || 0) >= 80 && item.matched_task) ? 'library' : 'opus'; }
 
 function statusFromItem(item) {
   const raw = (item.status || 'queued').toLowerCase();
@@ -266,18 +270,20 @@ function renderRows(items) {
   board.innerHTML = (items || []).map((item, idx) => {
     const status = statusFromItem(item);
     const total = item.steps || 0;
-    const done = item.steps_passed || item.steps_logged || item.covered_count || 0;
-    const pct = total ? Math.min(100, Math.round(done / total * 100)) : 0;
-    const confidence = Number.isFinite(item.confidence) ? item.confidence : (planByScenario[item.scenario_id]?.confidence || 0);
-    const blocker = item.error || item.paused_step || item.current_step || planByScenario[item.scenario_id]?.reason || '';
+    const preflight = !batchId;   // nothing has run yet - show what's KNOWN, not fake "progress"
+    const plan = planByScenario[item.scenario_id] || {};
+    const coveragePct = Number.isFinite(item.coverage_pct) ? item.coverage_pct : (plan.coverage_pct || 0);
+    const coveredCount = Number.isFinite(item.covered_count) ? item.covered_count : (plan.covered_count || 0);
+    const aiEstimate = Number.isFinite(item.ai_estimate) ? item.ai_estimate : (Number.isFinite(plan.ai_estimate) ? plan.ai_estimate : null);
+    const aiEstimateReason = item.ai_estimate_reason || plan.ai_estimate_reason || '';
+    const blocker = item.error || item.paused_step || item.current_step || plan.reason || '';
     const detail = blocker ? esc(blocker) : 'No blockers reported.';
     const trainUrl = `/scenario/${encodeURIComponent(item.scenario_id)}?script=${encodeURIComponent(SCRIPT_KEY)}&openLive=1`;
     const trained = item.pending_library_review ? ' · review video to save' : (item.trained_to_library ? ' · saved to library' : '');
     const video = item.video_url ? `<button type="button" class="video-link vid-open" data-vid="${esc(item.video_url)}" style="background:none;border:0;cursor:pointer;padding:0;font:inherit;">▸ Watch video</button>` : (status === 'paused' || status === 'failed' || status === 'needs_training' ? `<a class="video-link" href="${trainUrl}">Train live</a>` : '<span class="video-link" style="opacity:.35;">Waiting</span>');
     const rowTime = `<div class="row-time">Elapsed ${mmss(item.started_at, item.ended_at)}</div>`;
-    const lc = lightClass(confidence);
-    const light = `<span class="tl tl-${lc}" title="${esc(lightTitle(confidence))}"></span>`;
-    const preflight = !batchId;   // show the mode picker only before launch
+    const lc = lightClass(coveragePct);
+    const light = `<span class="tl tl-${lc}" title="${esc(lightTitle(coveragePct))}"></span>`;
     const mode = runModes[item.scenario_id] || defaultMode(item);
     const chosenTask = runLibTask[item.scenario_id] || item.matched_task || '';
     const libOpts = (chosenTask ? '' : '<option value="">Pick a saved task…</option>')
@@ -295,18 +301,27 @@ function renderRows(items) {
             <input type="radio" name="mode-${esc(item.scenario_id)}" value="opus" ${mode==='opus'?'checked':''}>
             Claude Opus</label>
         </div>${libSelect}` : '';
+    // Pre-run: show what's KNOWN (a fact) and Claude's own estimate (a judgement,
+    // clearly labeled as one) - never the run-progress bar/"steps passed" language,
+    // since nothing has actually executed yet.
+    const aiEstimateBadge = aiEstimate === null ? '' :
+      `<div class="ai-estimate-badge" title="${esc(aiEstimateReason || 'Claude\'s own estimate, not a guarantee.')}">Claude's estimate: ${aiEstimate}%</div>`;
+    const progressBlock = preflight ? `
+        <div class="coverage-line">Known steps: ${coveredCount}/${total}</div>
+        ${aiEstimateBadge}` : `
+        <div class="progress-track"><div class="progress-fill" style="width:${total ? Math.min(100, Math.round((item.steps_passed || item.steps_logged || 0) / total * 100)) : 0}%"></div></div>
+        <div class="progress-label">${item.steps_passed || item.steps_logged || 0}/${total} steps passed${trained}</div>`;
     return `<div class="run-row ${esc(status)}">
       <div class="orb">${idx + 1}</div>
       <div>
         <div class="run-name">${light}${esc(item.name)}</div>
-        <div class="run-meta">${esc(item.scenario_id)} · ${esc(item.role || '')} · ${total} steps${item.matched_task ? ' · memory: '+esc(item.matched_task) : ''} · confidence ${esc(confidence)}%</div>
+        <div class="run-meta">${esc(item.scenario_id)} · ${esc(item.role || '')} · ${total} steps${item.matched_task ? ' · memory: '+esc(item.matched_task) : ''} · known steps ${coveredCount}/${total}</div>
         <div class="run-detail">${detail}</div>
         ${modePick}
       </div>
       <span class="pill">${esc(status.replace('_',' '))}</span>
       <div>
-        <div class="progress-track"><div class="progress-fill" style="width:${pct}%"></div></div>
-        <div class="progress-label">${done}/${total} steps passed${trained}</div>
+        ${progressBlock}
       </div>
       <div class="status-link">${video}${rowTime}</div>
     </div>`;
@@ -367,7 +382,7 @@ async function startBatch() {
     method: 'POST',
     headers: {'Content-Type':'application/json'},
     body: JSON.stringify({script: SCRIPT_KEY, only: ONLY, answers, modes: runModes, lib_tasks: runLibTask,
-      confidences: Object.fromEntries(Object.entries(planByScenario).map(([k,v]) => [k, v.confidence || 0]))})
+      coverage: Object.fromEntries(Object.entries(planByScenario).map(([k,v]) => [k, v.coverage_pct || 0]))})
   });
   const data = await res.json();
   if (!data.ok) {
@@ -392,7 +407,9 @@ async function pollBatch() {
     const batch = data.batch;
     (batch.items || []).forEach(item => {
       if (planByScenario[item.scenario_id]) {
-        item.confidence = planByScenario[item.scenario_id].confidence;
+        item.coverage_pct = planByScenario[item.scenario_id].coverage_pct;
+        item.ai_estimate = planByScenario[item.scenario_id].ai_estimate;
+        item.ai_estimate_reason = planByScenario[item.scenario_id].ai_estimate_reason;
         item.matched_task = item.matched_task || planByScenario[item.scenario_id].matched_task;
       }
     });

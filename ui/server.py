@@ -460,6 +460,9 @@ def _scenario_signature(scenarios) -> str:
 
 
 def _normalise_cached_match_results(raw_results: list) -> list[dict]:
+    """Also accepts rows cached before the coverage_pct/ai_estimate split
+    (they only had "confidence", which was always the coverage ratio anyway)
+    so old cache entries don't need invalidating."""
     normalised = []
     for row in raw_results or []:
         if not isinstance(row, dict):
@@ -469,15 +472,23 @@ def _normalise_cached_match_results(raw_results: list) -> list[dict]:
             continue
         total_steps = int(row.get("total_steps") or 0)
         covered_count = int(row.get("covered_count") or 0)
-        confidence = int(row.get("confidence") or (round(covered_count / total_steps * 100) if total_steps else 0))
+        legacy_confidence = row.get("confidence")
+        coverage_pct = int(
+            row.get("coverage_pct")
+            if row.get("coverage_pct") is not None
+            else (legacy_confidence or (round(covered_count / total_steps * 100) if total_steps else 0))
+        )
+        ai_estimate = row.get("ai_estimate")
         normalised.append({
             "scenario_id": scenario_id,
             "name": str(row.get("name", "")),
-            "matched_to": str(row.get("matched_to", "")).strip() or None,
+            "matched_to": str(row.get("matched_to") or "").strip() or None,
             "reason": str(row.get("reason", ""))[:240],
-            "confidence": max(0, min(100, confidence)),
+            "coverage_pct": max(0, min(100, coverage_pct)),
             "covered_count": max(0, covered_count),
             "total_steps": max(0, total_steps),
+            "ai_estimate": max(0, min(100, int(ai_estimate))) if isinstance(ai_estimate, (int, float)) else None,
+            "ai_estimate_reason": str(row.get("ai_estimate_reason", ""))[:240],
         })
     return normalised
 
@@ -541,9 +552,11 @@ def _compute_match_results(scenarios, library: dict) -> list[dict]:
             "name": scenario.name,
             "matched_to": cov.get("matched_task") or match.get("match"),
             "reason": cov.get("reason") or match.get("reason", ""),
-            "confidence": round(covered_count / total_steps * 100) if total_steps else 0,
+            "coverage_pct": round(covered_count / total_steps * 100) if total_steps else 0,
             "covered_count": covered_count,
             "total_steps": total_steps,
+            "ai_estimate": cov.get("ai_estimate"),
+            "ai_estimate_reason": cov.get("ai_estimate_reason", ""),
         })
     return results
 
@@ -2362,10 +2375,20 @@ def _ai_describe_learned_task(name: str, goal: str, command_lines: list) -> dict
 
 def _coverage_for_scenario(scenario, library: dict) -> dict:
     """Best-matching library task + per-step coverage for ONE scenario.
-    Returns {"matched_task": name|None, "reason": str, "coverage": {step_id: bool}}.
+    Returns {"matched_task": name|None, "reason": str, "coverage": {step_id: bool},
+    "ai_estimate": int|None, "ai_estimate_reason": str}.
     Steps the matched task can perform are covered; extra/company-specific steps
-    it can't perform are gaps."""
-    out = {"matched_task": None, "reason": "", "coverage": {}}
+    it can't perform are gaps.
+
+    "coverage" (and the covered/total ratio derived from it elsewhere) is a hard
+    fact - the library either has a saved command for a step or it doesn't.
+    "ai_estimate" is a genuinely different thing: Claude's own judgement of how
+    likely it is to complete the WHOLE scenario successfully, informed by what
+    it's actually learned (saved commands + accumulated navigation notes), not
+    just the coverage ratio. Keep these two numbers visually distinct wherever
+    they're shown - one is deterministic, the other is a model's self-estimate
+    and can be wrong."""
+    out = {"matched_task": None, "reason": "", "coverage": {}, "ai_estimate": None, "ai_estimate_reason": ""}
     api_key = os.getenv("ANTHROPIC_API_KEY", "")
     tasks = {n: e for n, e in library.items() if isinstance(e, dict) and e.get("steps")}
     if not api_key or not tasks or not getattr(scenario, "steps", None):
@@ -2381,6 +2404,12 @@ def _coverage_for_scenario(scenario, library: dict) -> dict:
         for st in scenario.steps
     ]
     try:
+        from engine.coach import _load_global_notes
+        global_notes = _load_global_notes()
+    except Exception:
+        global_notes = ""
+    notes_section = f"\n\nAccumulated SAP SuccessFactors navigation knowledge from past runs:\n{global_notes}" if global_notes else ""
+    try:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
         msg = client.messages.create(
@@ -2391,10 +2420,17 @@ def _coverage_for_scenario(scenario, library: dict) -> dict:
                 "end-to-end process as one of the known library tasks — judge by goal/intent, not wording. "
                 "If it matches, mark which of the scenario's steps the known task already covers, and treat "
                 "the rest (extra or company-specific steps the saved task can't perform) as gaps.\n\n"
+                "Separately, give your OWN honest estimate of how likely you are to complete this scenario "
+                "successfully end-to-end if run now. Steps with a saved command are near-certain (they replay "
+                "exactly, barring a UI change since they were recorded); steps without one depend on you "
+                "reading the live screen and acting correctly - judge those using the accumulated navigation "
+                "knowledge below and how similar they are to steps you've handled before. Be honest, not "
+                "optimistic - if most steps are uncovered and unfamiliar, say so with a low number.\n\n"
                 "Known tasks:\n" + "\n".join(task_lines) + "\n\n"
-                "Scenario steps:\n" + "\n".join(step_lines) + "\n\n"
+                "Scenario steps:\n" + "\n".join(step_lines) + notes_section + "\n\n"
                 "Reply with ONLY JSON: {\"matched_task\": \"<exact task name>\" or null, "
-                "\"reason\": \"<one short sentence>\", \"covered_step_ids\": [\"<step_id>\", ...]}. "
+                "\"reason\": \"<one short sentence>\", \"covered_step_ids\": [\"<step_id>\", ...], "
+                "\"success_estimate\": <integer 0-100>, \"success_reason\": \"<one short sentence>\"}. "
                 "covered_step_ids lists only the scenario step ids the matched task can perform."
             )}],
         )
@@ -2403,6 +2439,10 @@ def _coverage_for_scenario(scenario, library: dict) -> dict:
             raw = raw.split("```")[1]
             raw = raw[4:] if raw.startswith("json") else raw
         parsed = json.loads(raw.strip())
+        estimate = parsed.get("success_estimate")
+        if isinstance(estimate, (int, float)):
+            out["ai_estimate"] = max(0, min(100, int(estimate)))
+            out["ai_estimate_reason"] = str(parsed.get("success_reason", ""))[:240]
         name = parsed.get("matched_task")
         if isinstance(name, str) and name in tasks:
             covered = set(parsed.get("covered_step_ids") or [])
@@ -2477,7 +2517,9 @@ def api_coverage(request: Request, scenario_id: str, script: str = ""):
         "steps": steps,
         "covered_count": covered_count,
         "total": total,
-        "confidence": round(covered_count / total * 100) if total else 0,
+        "coverage_pct": round(covered_count / total * 100) if total else 0,
+        "ai_estimate": cov.get("ai_estimate"),
+        "ai_estimate_reason": cov.get("ai_estimate_reason", ""),
         "library_tasks": [n for n, e in library.items() if isinstance(e, dict) and e.get("steps")],
         "scenario_variables": scenario_variables,
         "task_variables": {
@@ -2514,6 +2556,7 @@ def api_batch_plan(request: Request, script: str = "", only: str = ""):
         task_vars = _library_entry_variables(library.get(matched, {})) if matched else []
         for var in task_vars:
             variables[var] = var.replace("_", " ").title()
+        ai_estimate = row.get("ai_estimate")
         items.append({
             "scenario_id": scenario.scenario_id,
             "name": scenario.name,
@@ -2521,8 +2564,10 @@ def api_batch_plan(request: Request, script: str = "", only: str = ""):
             "module": scenario.module,
             "steps": total,
             "matched_task": matched,
-            "confidence": int(row.get("confidence") or (round(covered / total * 100) if total else 0)),
+            "coverage_pct": int(row.get("coverage_pct") or (round(covered / total * 100) if total else 0)),
             "covered_count": covered,
+            "ai_estimate": int(ai_estimate) if isinstance(ai_estimate, (int, float)) else None,
+            "ai_estimate_reason": str(row.get("ai_estimate_reason", ""))[:240],
             "reason": str(row.get("reason", ""))[:240],
             "variables": task_vars,
             "status": "queued",
@@ -2742,7 +2787,7 @@ def _batch_run_agent(batch_id: str, item: dict, scenario, script: str, answers: 
     context = "Scenario steps:\n" + "\n".join(ctx_lines)
 
     from engine.runner import run_agent_goal
-    confidence = int(item.get("confidence") or 0)
+    coverage_pct = int(item.get("coverage_pct") or 0)
     _BATCH_AGENT_IO.update({"answer": None, "decision": None, "plan": None, "plan_refine": None,
                             "paused": False, "instruction": None, "choice": None, "confirm": None})
     _AGENT_STOP["stop"] = False
@@ -2831,12 +2876,12 @@ def _batch_run_agent(batch_id: str, item: dict, scenario, script: str, answers: 
 
     item.update({"status": "agent_choose", "run_id": run_id, "started_at": _utc_now(),
                  "error": "", "mode": "opus", "trained_to_library": False, "steps_logged": 0,
-                 "plan_chat": [], "confidence": confidence})
+                 "plan_chat": [], "coverage_pct": coverage_pct})
 
     # ── Phase 0: CHOICE — how should Claude handle this unsaved task?
-    recommended = "attempt" if confidence >= 20 else "guided"
+    recommended = "attempt" if coverage_pct >= 20 else "guided"
     _ACTIVE_RUNS[scenario.scenario_id] = {"status": "agent_choose", "run_id": run_id, "user": user,
-        "script": script, "confidence": confidence, "recommended": recommended}
+        "script": script, "coverage_pct": coverage_pct, "recommended": recommended}
     waited = 0.0
     while _BATCH_AGENT_IO.get("choice") is None:
         if _AGENT_STOP.get("stop"):
@@ -2971,7 +3016,7 @@ async def api_batch_start(request: Request):
     answers = body.get("answers") if isinstance(body.get("answers"), dict) else {}
     modes = body.get("modes") if isinstance(body.get("modes"), dict) else {}
     lib_tasks = body.get("lib_tasks") if isinstance(body.get("lib_tasks"), dict) else {}
-    confidences = body.get("confidences") if isinstance(body.get("confidences"), dict) else {}
+    coverage = body.get("coverage") if isinstance(body.get("coverage"), dict) else {}
     only = str(body.get("only", "")).strip()
     scenarios = _load_scenarios(script or None)
     if only:  # "Run with Claude" on a single scenario
@@ -2993,7 +3038,7 @@ async def api_batch_start(request: Request):
             "run_id": "",
             "video_url": "",
             "error": "",
-            "confidence": int(confidences.get(s.scenario_id, 0) or 0),
+            "coverage_pct": int(coverage.get(s.scenario_id, 0) or 0),
         }
         for s in scenarios
     ]
