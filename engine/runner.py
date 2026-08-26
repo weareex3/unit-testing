@@ -127,6 +127,7 @@ def run_scenario(
     forced_library_task: str = "",
     preview: bool = False,
     preview_note: str = "",
+    workbook: str | None = None,
 ) -> ScenarioResult:
     """Login to SF, run all (or first *max_steps*) steps, record video."""
     run_id = run_id_override or datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
@@ -186,8 +187,8 @@ def run_scenario(
             # use_memory=False (step-by-step / take-control) runs every step fresh —
             # no saved feedback, locked playbook, task library, or learned patterns —
             # so it always starts from step 1 with a clean slate.
-            feedback_data = _load_feedback(scenario.scenario_id) if use_memory else {}
-            approved_cmds = _load_approved_commands(scenario.scenario_id) if use_memory else {}
+            feedback_data = _load_feedback(scenario.scenario_id, workbook) if use_memory else {}
+            approved_cmds = _load_approved_commands(scenario.scenario_id, workbook) if use_memory else {}
             expected_overrides = _load_expected_overrides(scenario.scenario_id)
             _scenario_ctx = ""
             _live_seed_shot = ""   # last real screenshot from an automated step
@@ -557,27 +558,58 @@ def _load_expected_overrides(scenario_id: str) -> dict:
 
 # ── Feedback loader ───────────────────────────────────────────────────────────
 
-def _load_feedback(scenario_id: str) -> dict:
-    """Load stored human feedback — client-specific first, then global fallback."""
+_RUNNER_LEGACY_BUCKET = "__legacy__"
+
+
+def _bucketed_json(path, is_legacy_flat) -> dict:
+    """Same {workbook_key: {scenario_id: ...}} on-disk shape ui/server.py writes
+    (see its _load_bucketed docstring) - duplicated here rather than imported,
+    since importing ui.server from the runner would pull in the whole FastAPI
+    app (routes, startup hooks) just to reuse two small readers. Keep this in
+    sync with ui/server.py's _load_bucketed/_is_legacy_flat_* if that shape
+    ever changes."""
     import json
+    if not path.exists():
+        return {}
+    try:
+        raw = json.loads(path.read_text())
+    except Exception:
+        return {}
+    if not isinstance(raw, dict):
+        return {}
+    if is_legacy_flat(raw):
+        return {_RUNNER_LEGACY_BUCKET: raw}
+    return raw
+
+
+def _is_legacy_flat_step_map(raw: dict) -> bool:
+    return any(
+        isinstance(v, dict) and v and all(isinstance(inner, dict) is False for inner in v.values())
+        for v in raw.values()
+    )
+
+
+def _is_legacy_flat_approved_map(raw: dict) -> bool:
+    return any(isinstance(v, dict) and "step_commands" in v for v in raw.values())
+
+
+def _load_feedback(scenario_id: str, workbook: str | None = None) -> dict:
+    """Load stored human feedback for one workbook (falls back to the legacy
+    unscoped bucket for data saved before workbook scoping existed), then the
+    client-wide global fallback file. Two DIFFERENT, unrelated scripts that
+    happen to reuse the same Script ID must never share trained commands -
+    see the workbook-scoping note on ui/server.py's _load_bucketed."""
     root = _storage_root()
     client_id = os.getenv("CLIENT_ID", "default")
+    bucket_key = workbook or _RUNNER_LEGACY_BUCKET
 
     client_file = root / client_id / "step_feedback.json"
-    client_data = {}
-    if client_file.exists():
-        try:
-            client_data = json.loads(client_file.read_text()).get(scenario_id, {})
-        except Exception:
-            pass
+    client_all = _bucketed_json(client_file, _is_legacy_flat_step_map)
+    client_data = client_all.get(bucket_key, {}).get(scenario_id, {})
 
     global_file = root / "step_feedback.json"
-    global_data = {}
-    if global_file.exists():
-        try:
-            global_data = json.loads(global_file.read_text()).get(scenario_id, {})
-        except Exception:
-            pass
+    global_all = _bucketed_json(global_file, _is_legacy_flat_step_map)
+    global_data = global_all.get(bucket_key, {}).get(scenario_id, {})
 
     return {**global_data, **client_data}
 
@@ -634,19 +666,15 @@ def _library_task_match(scenario_steps: list, library: dict) -> dict:
     return {}
 
 
-def _load_approved_commands(scenario_id: str) -> dict:
-    """Return step_id -> command string for approved (locked) scenarios, or {}."""
-    import json
+def _load_approved_commands(scenario_id: str, workbook: str | None = None) -> dict:
+    """Return step_id -> command string for approved (locked) scenarios, or {}.
+    Scoped per workbook - see _load_feedback's note above."""
     root = _storage_root()
     client_id = os.getenv("CLIENT_ID", "default")
+    bucket_key = workbook or _RUNNER_LEGACY_BUCKET
     approved_file = root / client_id / "approved.json"
-    if not approved_file.exists():
-        return {}
-    try:
-        data = json.loads(approved_file.read_text())
-        return data.get(scenario_id, {}).get("step_commands", {})
-    except Exception:
-        return {}
+    all_approved = _bucketed_json(approved_file, _is_legacy_flat_approved_map)
+    return all_approved.get(bucket_key, {}).get(scenario_id, {}).get("step_commands", {})
 
 
 # ── Login ─────────────────────────────────────────────────────────────────────

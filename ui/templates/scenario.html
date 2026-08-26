@@ -844,6 +844,7 @@
       fd.append('step_id', stepId);
       fd.append('feedback', commands);
       fd.append('push', 'true');
+      fd.append('script', SCRIPT_KEY);
       const saved = await fetch('/api/step-feedback', { method: 'POST', body: fd });
       if (!saved.ok) { statusEl.textContent = 'Save failed — try again'; statusEl.style.color = '#ff3b30'; return; }
       statusEl.textContent = 'Saved. Resuming run…';
@@ -911,7 +912,9 @@
   }
 
   async function approveRun() {
-    const res = await fetch(`/api/scenario/${SCENARIO_ID}/approve`, { method: 'POST' });
+    const fd = new FormData();
+    fd.append('script', SCRIPT_KEY);
+    const res = await fetch(`/api/scenario/${SCENARIO_ID}/approve`, { method: 'POST', body: fd });
     if (res.ok) window.location.reload();
   }
   async function approveVideoAndSaveTask() {
@@ -921,7 +924,7 @@
     const res = await fetch(`/api/scenario/${SCENARIO_ID}/approve-library`, {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({task_name: taskName.trim(), note: (note || '').trim()}),
+      body: JSON.stringify({task_name: taskName.trim(), note: (note || '').trim(), script: SCRIPT_KEY}),
     });
     const data = await res.json().catch(() => ({}));
     if (res.ok && data.ok) {
@@ -932,7 +935,9 @@
     }
   }
   async function unapproveRun() {
-    const res = await fetch(`/api/scenario/${SCENARIO_ID}/unapprove`, { method: 'POST' });
+    const fd = new FormData();
+    fd.append('script', SCRIPT_KEY);
+    const res = await fetch(`/api/scenario/${SCENARIO_ID}/unapprove`, { method: 'POST', body: fd });
     if (res.ok) window.location.reload();
   }
 
@@ -1202,7 +1207,7 @@
         if (data.status === 'done') { clearInterval(_pollTimer); window.location.reload(); }
         else if (data.status === 'paused' && data.live_step) {
           clearInterval(_pollTimer);
-          window.location.href = `/click/${SCENARIO_ID}/${data.paused_step}?live=1`;
+          window.location.href = `/click/${SCENARIO_ID}/${data.paused_step}?live=1&script=${encodeURIComponent(SCRIPT_KEY || '')}`;
         }
         else if (data.status === 'paused' && !data.live_step) {
           clearInterval(_pollTimer);
@@ -1256,6 +1261,7 @@
     fd.append('step_id', _selectedStep);
     fd.append('feedback', text);
     fd.append('push', push ? 'true' : 'false');
+    fd.append('script', SCRIPT_KEY);
     const res = await fetch('/api/step-feedback', { method: 'POST', body: fd });
     return res.ok;
   }
@@ -1312,7 +1318,7 @@
       await fetch(`/api/live/${SCENARIO_ID}/request-control`, {
         method: 'POST',
         headers: {'Content-Type':'application/json'},
-        body: JSON.stringify({answers}),
+        body: JSON.stringify({answers, script: SCRIPT_KEY}),
       });
     } catch(e) {}
     controlLabel.textContent = 'Waiting for pause…';
@@ -1658,6 +1664,7 @@
     fd.append('task_name', name);
     fd.append('task_description', desc);
     fd.append('scenario_id', SCENARIO_ID);
+    fd.append('script', SCRIPT_KEY);
     const res = await fetch('/api/library/add', { method: 'POST', body: fd });
     const status = document.getElementById('lib-save-status');
     if (res.ok) {

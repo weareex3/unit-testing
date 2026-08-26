@@ -588,30 +588,59 @@ def _backup_learned_data() -> None:
         print(f"[backup] failed: {exc}")
 
 
-def _load_approved() -> dict:
-    if APPROVED_FILE.exists():
-        try:
-            return json.loads(APPROVED_FILE.read_text())
-        except Exception:
-            return {}
-    return {}
+# Approved "golden playbook" commands and per-step training feedback used to be
+# keyed by bare scenario_id, exactly like statuses were before the fix above -
+# and Script IDs are an author-chosen convention routinely reused across
+# DIFFERENT, unrelated workbooks (including different companies' workbooks in
+# the Vault). Without workbook scoping, one company's saved commands - real
+# tenant URLs, real test data - could silently be read and REPLAYED by another
+# company's run of a same-numbered scenario. Scoped by workbook exactly like
+# statuses; legacy unscoped data is preserved under _LEGACY_STATUS_KEY.
+
+def _load_all_approved() -> dict:
+    return _load_bucketed(APPROVED_FILE, _is_legacy_flat_approved_map)
 
 
-def _save_approved(data: dict) -> None:
-    APPROVED_FILE.write_text(json.dumps(data, indent=2))
+def _save_all_approved(data: dict) -> None:
+    _save_bucketed(APPROVED_FILE, data)
 
 
-def _load_feedback() -> dict:
-    if FEEDBACK_FILE.exists():
-        try:
-            return json.loads(FEEDBACK_FILE.read_text())
-        except Exception:
-            return {}
-    return {}
+def _load_approved(workbook: str | None = None) -> dict:
+    """Approved step commands for one workbook: {scenario_id: {"approved_at":..., "step_commands": {...}}}."""
+    return _load_all_approved().get(_status_bucket_key(workbook), {})
 
 
-def _save_feedback(data: dict) -> None:
-    FEEDBACK_FILE.write_text(json.dumps(data, indent=2))
+def _save_approved(workbook: str | None, scenario_approved: dict) -> None:
+    all_data = _load_all_approved()
+    key = _status_bucket_key(workbook)
+    if scenario_approved:
+        all_data[key] = scenario_approved
+    else:
+        all_data.pop(key, None)
+    _save_all_approved(all_data)
+
+
+def _load_all_feedback() -> dict:
+    return _load_bucketed(FEEDBACK_FILE, _is_legacy_flat_step_map)
+
+
+def _save_all_feedback(data: dict) -> None:
+    _save_bucketed(FEEDBACK_FILE, data)
+
+
+def _load_feedback(workbook: str | None = None) -> dict:
+    """Per-step trained commands for one workbook: {scenario_id: {step_id: command}}."""
+    return _load_all_feedback().get(_status_bucket_key(workbook), {})
+
+
+def _save_feedback(workbook: str | None, scenario_feedback: dict) -> None:
+    all_data = _load_all_feedback()
+    key = _status_bucket_key(workbook)
+    if scenario_feedback:
+        all_data[key] = scenario_feedback
+    else:
+        all_data.pop(key, None)
+    _save_all_feedback(all_data)
 
 
 # Two different workbooks routinely reuse the same Script ID (it's an author-chosen
@@ -627,31 +656,59 @@ def _status_bucket_key(workbook: str | None) -> str:
     return workbook or _LEGACY_STATUS_KEY
 
 
-def _load_all_statuses() -> dict:
-    """Raw on-disk shape: {workbook_key: {scenario_id: {step_id: status}}}. A
-    file written before per-workbook scoping existed is flat
-    ({scenario_id: {step_id: status}}) - detected by sniffing one leaf value's
-    type and migrated under _LEGACY_STATUS_KEY, in memory only (not rewritten
-    to disk until something next saves)."""
-    if not STATUS_FILE.exists():
+def _load_bucketed(path: Path, is_legacy_flat) -> dict:
+    """Generic reader for the {workbook_key: {scenario_id: ...}} on-disk shape
+    used by statuses/feedback/approved. A file written before per-workbook
+    scoping existed is flat ({scenario_id: ...}) - `is_legacy_flat(raw)`
+    decides whether the WHOLE file is old-shape (each shape's leaf values look
+    different, so the caller supplies the check), and if so it's migrated
+    under _LEGACY_STATUS_KEY in memory only (not rewritten to disk until
+    something next saves). This is what makes reusing a scenario_id across two
+    DIFFERENT, unrelated workbooks safe - each workbook gets its own bucket,
+    so one company's saved commands/approvals/statuses can never bleed into
+    another's just because they happened to reuse the same Script ID."""
+    if not path.exists():
         return {}
     try:
-        raw = json.loads(STATUS_FILE.read_text())
+        raw = json.loads(path.read_text())
     except Exception:
         return {}
     if not isinstance(raw, dict):
         return {}
-    is_legacy_flat = any(
-        isinstance(v, dict) and v and all(isinstance(leaf, str) for leaf in v.values())
-        for v in raw.values()
-    )
-    if is_legacy_flat:
+    if is_legacy_flat(raw):
         return {_LEGACY_STATUS_KEY: raw}
     return raw
 
 
+def _save_bucketed(path: Path, data: dict) -> None:
+    path.write_text(json.dumps(data, indent=2))
+
+
+def _is_legacy_flat_step_map(raw: dict) -> bool:
+    """True if raw looks like {scenario_id: {step_id: <leaf>}} directly
+    (pre-scoping shape for statuses/feedback), rather than
+    {workbook_key: {scenario_id: {step_id: <leaf>}}}."""
+    return any(
+        isinstance(v, dict) and v and all(isinstance(inner, dict) is False for inner in v.values())
+        for v in raw.values()
+    )
+
+
+def _is_legacy_flat_approved_map(raw: dict) -> bool:
+    """True if raw looks like {scenario_id: {"approved_at":..., "step_commands":...}}
+    directly (pre-scoping shape), rather than {workbook_key: {scenario_id: {...}}}."""
+    return any(
+        isinstance(v, dict) and "step_commands" in v
+        for v in raw.values()
+    )
+
+
+def _load_all_statuses() -> dict:
+    return _load_bucketed(STATUS_FILE, _is_legacy_flat_step_map)
+
+
 def _save_all_statuses(data: dict) -> None:
-    STATUS_FILE.write_text(json.dumps(data, indent=2))
+    _save_bucketed(STATUS_FILE, data)
 
 
 def _load_statuses(workbook: str | None = None) -> dict:
@@ -2507,8 +2564,8 @@ def api_coverage(request: Request, scenario_id: str, script: str = ""):
     # prompts for them even when not using a library task.
     import re as _re
     _own_cmds = {}
-    _own_cmds.update(_load_feedback().get(scenario_id, {}) or {})
-    _own_cmds.update((_load_approved().get(scenario_id, {}) or {}).get("step_commands", {}) or {})
+    _own_cmds.update(_load_feedback(script or None).get(scenario_id, {}) or {})
+    _own_cmds.update((_load_approved(script or None).get(scenario_id, {}) or {}).get("step_commands", {}) or {})
     scenario_variables = sorted({m for c in _own_cmds.values() for m in _re.findall(r"\{\{(\w+)\}\}", c or "")})
     return JSONResponse({
         "ok": True,
@@ -2590,8 +2647,8 @@ def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers:
     _LIVE_SHOT_PATHS.pop(scenario.scenario_id, None)
     _LIVE_QUEUES.pop(scenario.scenario_id, None)
 
-    existing_approved = ((_load_approved().get(scenario.scenario_id, {}) or {}).get("step_commands", {}) or {})
-    existing_feedback = _load_feedback().get(scenario.scenario_id, {}) or {}
+    existing_approved = ((_load_approved(script or None).get(scenario.scenario_id, {}) or {}).get("step_commands", {}) or {})
+    existing_feedback = _load_feedback(script or None).get(scenario.scenario_id, {}) or {}
     pre_saved_commands = {**existing_feedback, **existing_approved}
     trained_step_ids = {
         step_id
@@ -2681,9 +2738,10 @@ def _batch_run_record(batch_id: str, item: dict, scenario, script: str, answers:
         unattended=False,
         run_id_override=run_id,
         forced_library_task=forced_task,
+        workbook=script or None,
     )
-    latest_approved = ((_load_approved().get(scenario.scenario_id, {}) or {}).get("step_commands", {}) or {})
-    latest_feedback = _load_feedback().get(scenario.scenario_id, {}) or {}
+    latest_approved = ((_load_approved(script or None).get(scenario.scenario_id, {}) or {}).get("step_commands", {}) or {})
+    latest_feedback = _load_feedback(script or None).get(scenario.scenario_id, {}) or {}
     merged_commands = {**latest_approved, **latest_feedback}
     if result.passed and merged_commands and merged_commands != pre_saved_commands:
         item["pending_library_review"] = True
@@ -2719,20 +2777,34 @@ def _has_replay_commands(commands: str) -> bool:
     return any(str(line).strip().upper().startswith(_REPLAY_PREFIXES) for line in (commands or "").splitlines())
 
 
-def _save_reviewed_task_to_library(scenario, commands: dict, user: dict, run_id: str, task_name: str = "", note: str = "") -> dict:
+def _save_reviewed_task_to_library(scenario, commands: dict, user: dict, run_id: str, task_name: str = "",
+                                    note: str = "", workbook: str | None = None) -> dict:
     """Lock a reviewed task and add it to the reusable library."""
     if not commands:
         return {"ok": False, "error": "No recorded commands to save."}
-    approved = _load_approved()
+    approved = _load_approved(workbook)
     approved[scenario.scenario_id] = {
         "approved_at": datetime.utcnow().isoformat(),
         "step_commands": commands,
     }
-    _save_approved(approved)
+    _save_approved(workbook, approved)
 
     task_name = (task_name or getattr(scenario, "name", "") or scenario.scenario_id).strip()
     note = (note or "Approved after reviewing the recorded run video.").strip()
     library = _load_library()
+    existing = library.get(task_name)
+    # The library is intentionally shared across companies (accumulated SF
+    # navigation knowledge is useful to everyone) - but a task NAME is
+    # free-text, author-chosen, and easily reused by coincidence. Never
+    # silently destroy someone else's saved commands just because a new save
+    # picked the same name for a DIFFERENT scenario; auto-disambiguate instead.
+    if isinstance(existing, dict) and existing.get("scenario_id") not in (None, scenario.scenario_id):
+        suffix = 2
+        candidate = f"{task_name} ({suffix})"
+        while candidate in library:
+            suffix += 1
+            candidate = f"{task_name} ({suffix})"
+        task_name = candidate
     library[task_name] = {
         "description": _ai_task_description(scenario, note),
         "note": note,
@@ -2997,7 +3069,7 @@ def _batch_run_agent(batch_id: str, item: dict, scenario, script: str, answers: 
         task_name = (decision.get("task_name") if isinstance(decision, dict) else "") or scenario.name
         try:
             _save_reviewed_task_to_library(scenario, commands, user, run_id, task_name=task_name,
-                note="Learned via Run All (Claude), approved by the user.")
+                note="Learned via Run All (Claude), approved by the user.", workbook=script or None)
             item["trained_to_library"] = True
         except Exception as exc:
             item["error"] = f"save failed: {exc}"
@@ -3781,8 +3853,8 @@ def scenario_detail(request: Request, scenario_id: str):
     statuses = _load_statuses(selected_script or None).get(scenario_id, {})
     step_statuses = {step.step_id: statuses.get(step.step_id, "not_tested") for step in scenario.steps}
 
-    feedback = _load_feedback().get(scenario_id, {})
-    approved = _load_approved().get(scenario_id)
+    feedback = _load_feedback(selected_script or None).get(scenario_id, {})
+    approved = _load_approved(selected_script or None).get(scenario_id)
 
     return templates.TemplateResponse(
         request=request,
@@ -3899,7 +3971,7 @@ def analyse_scenario_route(scenario_id: str, script: str = ""):
 
     # Filter out questions for steps that already have complete feedback written,
     # unless that feedback contains a {{placeholder}} (meaning the answer is still needed).
-    existing_feedback = _load_feedback().get(scenario_id, {})
+    existing_feedback = _load_feedback(script or None).get(scenario_id, {})
     def _needs_question(q: dict) -> bool:
         step_id = q.get("step_id", "")
         fb = existing_feedback.get(step_id, "")
@@ -4046,6 +4118,7 @@ async def trigger_run(scenario_id: str, request: Request):
                 unattended=False,
                 run_id_override=run_id,
                 forced_library_task=force_library_task,
+                workbook=script_key or None,
             )
             _write_step_log(steps_log, "done")
             failed_steps = [s for s in steps_log if not s.get("passed")]
@@ -4325,11 +4398,12 @@ async def resume_run(scenario_id: str, request: Request):
     if save_feedback and commands:
         paused_step = _ACTIVE_RUNS.get(scenario_id, {}).get("paused_step")
         if paused_step:
-            data = _load_feedback()
+            workbook = active.get("script") or None
+            data = _load_feedback(workbook)
             existing = data.get(scenario_id, {}).get(paused_step, "")
             if not existing:
                 data.setdefault(scenario_id, {})[paused_step] = commands
-                _save_feedback(data)
+                _save_feedback(workbook, data)
 
     _PAUSE_EVENTS[scenario_id].set()
     return JSONResponse({"ok": True})
@@ -4398,11 +4472,13 @@ async def live_done(scenario_id: str, request: Request):
 
     # Save as step feedback if we recorded anything
     if commands:
-        paused_step = _ACTIVE_RUNS.get(scenario_id, {}).get("paused_step")
+        active_state = _ACTIVE_RUNS.get(scenario_id, {})
+        paused_step = active_state.get("paused_step")
         if paused_step:
-            data = _load_feedback()
+            workbook = active_state.get("script") or None
+            data = _load_feedback(workbook)
             data.setdefault(scenario_id, {})[paused_step] = commands
-            _save_feedback(data)
+            _save_feedback(workbook, data)
             import threading as _t
             _t.Thread(target=_backup_learned_data, daemon=True).start()
 
@@ -4429,6 +4505,7 @@ async def request_control(scenario_id: str, request: Request):
     """
     body = await request.json()
     pre_answers = body.get("answers", {})
+    script_key = str(body.get("script", "")).strip()
     user = _current_user(request)
 
     status = _ACTIVE_RUNS.get(scenario_id, {}).get("status", "idle")
@@ -4442,7 +4519,7 @@ async def request_control(scenario_id: str, request: Request):
 
     if status not in ("running",):
         # Not running — start a fresh run
-        scenarios = _load_scenarios()
+        scenarios = _load_scenarios(script_key or None)
         scenario = next((s for s in scenarios if s.scenario_id == scenario_id), None)
         if not scenario:
             raise HTTPException(404, "Scenario not found")
@@ -4453,7 +4530,7 @@ async def request_control(scenario_id: str, request: Request):
             _PAUSE_EVENTS[scenario_id].set()
 
         run_id = datetime.utcnow().strftime("%Y%m%dT%H%M%SZ")
-        _ACTIVE_RUNS[scenario_id] = {"status": "running", "run_id": run_id, "user": user, "live_mode": True}
+        _ACTIVE_RUNS[scenario_id] = {"status": "running", "run_id": run_id, "user": user, "live_mode": True, "script": script_key}
         _append_audit(
             run_id,
             "run_started",
@@ -4494,7 +4571,8 @@ async def request_control(scenario_id: str, request: Request):
                                       initial_context=pre_answers,
                                       step_done_callback=_step_done,
                                       check_pause_fn=_check_pause,
-                                      run_id_override=run_id)
+                                      run_id_override=run_id,
+                                      workbook=script_key or None)
                 try:
                     step_log_file.write_text(json.dumps({"run_id": run_id, "status": "done", "steps": steps_log}, indent=2))
                 except Exception:
@@ -4520,15 +4598,16 @@ async def request_control(scenario_id: str, request: Request):
 
 
 @app.get("/click/{scenario_id}/{step_id}", response_class=HTMLResponse)
-def click_trainer(scenario_id: str, step_id: str, live: bool = False):
+def click_trainer(scenario_id: str, step_id: str, live: bool = False, script: str = ""):
     """Full-screen click trainer. In live=True mode the screenshot streams from
     the running browser and clicks are sent to it in real time."""
     import re as _re
+    workbook = script or None
 
     # Get step action text for the header
     step_action = ""
     try:
-        scenarios = _load_scenarios()
+        scenarios = _load_scenarios(workbook)
         sc = next((s for s in scenarios if s.scenario_id == scenario_id), None)
         if sc:
             st = next((s for s in sc.steps if s.step_id == step_id), None)
@@ -4537,7 +4616,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
     except Exception:
         pass
 
-    feedback_data = _load_feedback()
+    feedback_data = _load_feedback(workbook)
     # In live mode start with a blank slate — old commands may be broken (that's
     # why we're here). Only pre-fill in static/teach mode.
     current_feedback = "" if live else feedback_data.get(scenario_id, {}).get(step_id, "")
@@ -4618,6 +4697,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
       fd.append('scenario_id', '{scenario_id}');
       fd.append('step_id', '{step_id}');
       fd.append('feedback', text);
+      fd.append('script', '{script}');
       await fetch('/api/step-feedback', {{method:'POST', body:fd}});
     }}
     // Signal runner to advance
@@ -4636,7 +4716,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
             // All scripted steps done — stay open, let user keep clicking
             _showFinishState();
           }} else {{
-            window.location.href = `/click/{scenario_id}/${{d.paused_step}}?live=1`;
+            window.location.href = `/click/{scenario_id}/${{d.paused_step}}?live=1&script=${{encodeURIComponent('{script}')}}`;
           }}
         }} else if (d.status === 'paused' && !d.live_step) {{
           clearInterval(poll); clearInterval(_refreshTimer);
@@ -4765,6 +4845,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
 <script>
   const SCENARIO_ID = "{scenario_id}";
   const STEP_ID = "{step_id}";
+  const SCRIPT_KEY = "{script}";
   let lastX = 0, lastY = 0;
   const wrap = document.getElementById('img-wrap');
   const shot = document.getElementById('shot');
@@ -4801,6 +4882,7 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
     fd.append('scenario_id', SCENARIO_ID);
     fd.append('step_id', STEP_ID);
     fd.append('feedback', text);
+    fd.append('script', SCRIPT_KEY);
     const res = await fetch('/api/step-feedback', {{ method: 'POST', body: fd }});
     if (res.ok) {{
       document.getElementById('status').textContent = 'saved!';
@@ -4815,15 +4897,16 @@ def click_trainer(scenario_id: str, step_id: str, live: bool = False):
 
 
 @app.post("/api/scenario/{scenario_id}/approve")
-def approve_scenario(request: Request, scenario_id: str):
+def approve_scenario(request: Request, scenario_id: str, script: str = Form("")):
     """Lock the current feedback as the golden playbook — used on every future run."""
-    feedback = _load_feedback().get(scenario_id, {})
-    approved = _load_approved()
+    workbook = script or None
+    feedback = _load_feedback(workbook).get(scenario_id, {})
+    approved = _load_approved(workbook)
     approved[scenario_id] = {
         "approved_at": datetime.utcnow().isoformat(),
         "step_commands": feedback,
     }
-    _save_approved(approved)
+    _save_approved(workbook, approved)
     _append_audit(
         _latest_run_id_for_scenario(scenario_id),
         "scenario_approved",
@@ -4846,10 +4929,15 @@ async def approve_scenario_and_save_library(request: Request, scenario_id: str):
         body = {}
     task_name = str(body.get("task_name", "")).strip() if isinstance(body, dict) else ""
     note = str(body.get("note", "")).strip() if isinstance(body, dict) else ""
-    scenario = next((s for s in _load_scenarios() if s.scenario_id == scenario_id), None)
+    script = str(body.get("script", "")).strip() if isinstance(body, dict) else ""
+    workbook = script or None
+    # Resolving the scenario against ALL companies' vaults would let the wrong
+    # company's workbook text (and file ordering) win a same-numbered scenario
+    # id - scope to the caller's own workbook, same as every other route here.
+    scenario = next((s for s in _load_scenarios(workbook) if s.scenario_id == scenario_id), None)
     if not scenario:
         return JSONResponse({"ok": False, "error": "Scenario not found."}, status_code=404)
-    commands = _load_feedback().get(scenario_id, {}) or {}
+    commands = _load_feedback(workbook).get(scenario_id, {}) or {}
     if not commands:
         return JSONResponse({"ok": False, "error": "There are no recorded step commands to save yet."}, status_code=400)
     result = _save_reviewed_task_to_library(
@@ -4859,6 +4947,7 @@ async def approve_scenario_and_save_library(request: Request, scenario_id: str):
         _latest_run_id_for_scenario(scenario_id),
         task_name=task_name,
         note=note,
+        workbook=workbook,
     )
     if not result.get("ok"):
         return JSONResponse(result, status_code=400)
@@ -4866,11 +4955,12 @@ async def approve_scenario_and_save_library(request: Request, scenario_id: str):
 
 
 @app.post("/api/scenario/{scenario_id}/unapprove")
-def unapprove_scenario(request: Request, scenario_id: str):
+def unapprove_scenario(request: Request, scenario_id: str, script: str = Form("")):
     """Remove the golden playbook so the scenario goes back to normal mode."""
-    approved = _load_approved()
+    workbook = script or None
+    approved = _load_approved(workbook)
     approved.pop(scenario_id, None)
-    _save_approved(approved)
+    _save_approved(workbook, approved)
     _append_audit(
         _latest_run_id_for_scenario(scenario_id),
         "scenario_unapproved",
@@ -4890,13 +4980,15 @@ def set_step_feedback(
     step_id: str = Form(...),
     feedback: str = Form(...),
     push: str = Form("true"),   # "false" = save locally only, no git push
+    script: str = Form(""),
 ):
-    data = _load_feedback()
+    workbook = script or None
+    data = _load_feedback(workbook)
     if feedback.strip():
         data.setdefault(scenario_id, {})[step_id] = feedback.strip()
     else:
         data.get(scenario_id, {}).pop(step_id, None)
-    _save_feedback(data)
+    _save_feedback(workbook, data)
     _append_audit(
         _latest_run_id_for_scenario(scenario_id),
         "step_feedback_saved",
@@ -5149,15 +5241,17 @@ def add_to_library(
     task_name: str = Form(...),
     task_description: str = Form(...),
     scenario_id: str = Form(...),
+    script: str = Form(""),
 ):
     # Prefer the locked/approved command sequence (best for replay), then learned
     # feedback, then the scenario's own step actions. We never hard-fail: the task
     # MUST land in the library so Claude can recognise it on future uploads —
     # recognition uses name/description/steps; replay sharpens once a run is locked.
-    approved = _load_approved().get(scenario_id, {})
-    steps = approved.get("step_commands", {}) or _load_feedback().get(scenario_id, {})
+    workbook = script or None
+    approved = _load_approved(workbook).get(scenario_id, {})
+    steps = approved.get("step_commands", {}) or _load_feedback(workbook).get(scenario_id, {})
     learned = bool(steps)
-    scenario = next((s for s in _load_scenarios() if s.scenario_id == scenario_id), None)
+    scenario = next((s for s in _load_scenarios(workbook) if s.scenario_id == scenario_id), None)
     if not steps and scenario:
         steps = {st.step_id: (st.action or "") for st in scenario.steps}
     # Save the human-readable step actions too, so future matching can align a new

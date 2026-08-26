@@ -111,19 +111,45 @@ def _iter_commands():
             for step_id, cmds in steps.items():
                 yield f"library:{task}", step_id, cmds
 
+    # step_feedback.json/approved.json are now bucketed {workbook_key: {scenario_id:
+    # ...}} to stop two unrelated scripts sharing a Script ID from replaying each
+    # other's saved commands (see ui/server.py's _load_bucketed). A file written
+    # before that scoping existed is still flat ({scenario_id: ...}) - detect which
+    # shape we're looking at the same way the app does, so this linter keeps
+    # checking every stored command instead of silently misreading workbook keys
+    # as scenario ids once real bucketed data exists.
+    def _is_legacy_flat_step_map(raw):
+        return any(
+            isinstance(v, dict) and v and all(isinstance(inner, dict) is False for inner in v.values())
+            for v in raw.values()
+        )
+
+    def _is_legacy_flat_approved_map(raw):
+        return any(isinstance(v, dict) and "step_commands" in v for v in raw.values())
+
     for fb in STORAGE.glob("*/step_feedback.json"):
-        data = json.loads(fb.read_text(encoding="utf-8"))
-        for scenario, steps in (data.items() if isinstance(data, dict) else []):
-            if isinstance(steps, dict):
-                for step_id, cmds in steps.items():
-                    yield f"feedback:{fb.parent.name}/{scenario}", step_id, cmds
+        raw = json.loads(fb.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            continue
+        buckets = {"": raw} if _is_legacy_flat_step_map(raw) else raw
+        for workbook, data in buckets.items():
+            for scenario, steps in (data.items() if isinstance(data, dict) else []):
+                if isinstance(steps, dict):
+                    for step_id, cmds in steps.items():
+                        label = f"{workbook}/{scenario}" if workbook else scenario
+                        yield f"feedback:{fb.parent.name}/{label}", step_id, cmds
 
     for ap in STORAGE.glob("*/approved.json"):
-        data = json.loads(ap.read_text(encoding="utf-8"))
-        for scenario, entry in (data.items() if isinstance(data, dict) else []):
-            steps = entry.get("step_commands", {}) if isinstance(entry, dict) else {}
-            for step_id, cmds in steps.items():
-                yield f"approved:{ap.parent.name}/{scenario}", step_id, cmds
+        raw = json.loads(ap.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            continue
+        buckets = {"": raw} if _is_legacy_flat_approved_map(raw) else raw
+        for workbook, data in buckets.items():
+            for scenario, entry in (data.items() if isinstance(data, dict) else []):
+                steps = entry.get("step_commands", {}) if isinstance(entry, dict) else {}
+                for step_id, cmds in steps.items():
+                    label = f"{workbook}/{scenario}" if workbook else scenario
+                    yield f"approved:{ap.parent.name}/{label}", step_id, cmds
 
 
 def main() -> int:
